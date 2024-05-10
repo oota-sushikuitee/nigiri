@@ -1,43 +1,39 @@
 package main
 
-import (
-	"log"
-	"os"
-
-	"github.com/urfave/cli/v2"
-)
+import "github.com/spf13/cobra"
 
 func main() {
-	app := &cli.App{
-		Name: "nigiri",
-		Commands: []*cli.Command{
-			{
-				Name:  "build",
-				Usage: "TODO: Write usage",
-				Action: func(c *cli.Context) error {
-					log.Println("build")
-					return nil
-				},
-			}, {
-				Name:  "run",
-				Usage: "TODO: Write usage",
-				Action: func(c *cli.Context) error {
-					log.Println("run")
-					return nil
-				},
-			}, {
-				Name:    "remove",
-				Aliases: []string{"rm"},
-				Usage:   "TODO: Write usage",
-				Action: func(c *cli.Context) error {
-					log.Println("rm")
-					return nil
-				},
-			},
+	var buildCmd = &cobra.Command{
+		Use:   "build",
+		Short: "TODO: Add a brief description",
+		Run: func(cmd *cobra.Command, args []string) {
+			// Do stuff
 		},
 	}
 
-	if err := app.Run(os.Args); err != nil {
-		log.Fatal(err)
+	var runCmd = &cobra.Command{
+		Use:   "run",
+		Short: "TODO: Add a brief description",
+		Run: func(cmd *cobra.Command, args []string) {
+			// Do stuff
+		},
 	}
+
+	var removeCmd = &cobra.Command{
+		Use:   "remove",
+		Short: "TODO: Add a brief description",
+		Run: func(cmd *cobra.Command, args []string) {
+			// Do stuff
+		},
+	}
+
+	var rootCmd = &cobra.Command{
+		Use:   "TODO: Add a description",
+		Short: "TODO: Add a brief description",
+	}
+
+	rootCmd.AddCommand(buildCmd)
+	rootCmd.AddCommand(runCmd)
+	rootCmd.AddCommand(removeCmd)
+	rootCmd.Execute()
 }
