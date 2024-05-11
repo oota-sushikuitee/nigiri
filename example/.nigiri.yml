@@ -1,0 +1,13 @@
+build:
+  golangci-lint:
+    - source: github.com/golangci/golangci-lint/
+    - build-command:
+        - linux: make build
+        - windows: make build
+        - darwin: make build
+  reviewdog:
+    - source: github.com/reviewdog/reviewdog
+    - build-command:
+        - linux: make build
+        - windows: make build
+        - darwin: make build
