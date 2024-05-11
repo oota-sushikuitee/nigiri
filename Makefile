@@ -23,7 +23,7 @@ fmt:
 
 .PHONY: clean
 clean:
-	rm -f bin/coffee
+	rm -f bin/nigiri
 
 .PHONY: help
 help:
