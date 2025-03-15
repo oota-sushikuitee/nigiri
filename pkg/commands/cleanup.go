@@ -72,8 +72,8 @@ func (c *cleanupCommand) getCompletionTargets(prefix string) []string {
 
 	var targets []string
 	for _, entry := range entries {
-		if entry.IsDir() && !filepath.HasPrefix(entry.Name(), ".") {
-			if prefix == "" || filepath.HasPrefix(entry.Name(), prefix) {
+		if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") {
+			if prefix == "" || strings.HasPrefix(entry.Name(), prefix) {
 				targets = append(targets, entry.Name())
 			}
 		}
