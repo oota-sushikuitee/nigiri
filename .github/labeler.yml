@@ -3,19 +3,6 @@ area/github-management:
       - any-glob-to-any-file:
           - ".github/**"
 
-area/documentation:
-  - changed-files:
-      - any-glob-to-any-file:
-          - "**/*.md"
-          - "**/*.txt"
-          - "docs/**"
-
-area/testing:
-  - changed-files:
-      - any-glob-to-any-file:
-          - "**/*_test.go"
-          - "**/testdata/*"
-
 area/cmd:
   - changed-files:
       - any-glob-to-any-file:
@@ -31,11 +18,18 @@ area/internal:
       - any-glob-to-any-file:
           - "internal/**"
 
-kind/feature:
-  - head-branch: ["^feat", "feat"]
-
 kind/bugfix:
   - head-branch: ["^fix", "fix"]
+
+kind/documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**/*.md"
+          - "**/*.txt"
+          - "docs/**"
+
+kind/feature:
+  - head-branch: ["^feat", "feat"]
 
 kind:refactor:
   - head-branch: ["^refactor", "refactor"]
