@@ -8,10 +8,24 @@ on:
     branches:
       - main
 
-permissions:
-  contents: read
-
 jobs:
+  go-mod:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: "go.mod"
+
+      - name: Check go.mod / go.sum
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod
+          git diff --exit-code go.sum
+
   test:
     runs-on: ubuntu-latest
     steps:

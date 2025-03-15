@@ -1,13 +1,27 @@
-build:
-  golangci-lint:
-    - source: github.com/golangci/golangci-lint/
-    - build-command:
-        - linux: make build
-        - windows: make build
-        - darwin: make build
-  reviewdog:
-    - source: github.com/reviewdog/reviewdog
-    - build-command:
-        - linux: make build
-        - windows: make build
-        - darwin: make build
+targets:
+  nigiri:
+    source: https://github.com/oota-sushikuitee/nigiri
+    default-branch: main
+    build-command:
+      linux: make build
+      windows: make build
+      darwin: make build
+  dotfiles:
+    source: https://github.com/Okabe-Junya/dotfiles
+    default-branch: main
+    build-command:
+      linux: make
+      windows: make
+      darwin: make
+  configs:
+    source: https://github.com/Okabe-Junya/.github
+    default-branch: main
+    build-command:
+      linux: make
+      windows: make
+      darwin: make
+defaults:
+  build-command:
+    linux: make build
+    windows: make build
+    darwin: make build

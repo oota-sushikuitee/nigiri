@@ -1,39 +1,15 @@
 package main
 
-import "github.com/spf13/cobra"
+import (
+	"fmt"
+	"os"
+
+	"github.com/oota-sushikuitee/nigiri/pkg/commands"
+)
 
 func main() {
-	var buildCmd = &cobra.Command{
-		Use:   "build",
-		Short: "TODO: Add a brief description",
-		Run: func(cmd *cobra.Command, args []string) {
-			// Do stuff
-		},
+	if err := commands.NewRootCommand().Execute(); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
 	}
-
-	var runCmd = &cobra.Command{
-		Use:   "run",
-		Short: "TODO: Add a brief description",
-		Run: func(cmd *cobra.Command, args []string) {
-			// Do stuff
-		},
-	}
-
-	var removeCmd = &cobra.Command{
-		Use:   "remove",
-		Short: "TODO: Add a brief description",
-		Run: func(cmd *cobra.Command, args []string) {
-			// Do stuff
-		},
-	}
-
-	var rootCmd = &cobra.Command{
-		Use:   "TODO: Add a description",
-		Short: "TODO: Add a brief description",
-	}
-
-	rootCmd.AddCommand(buildCmd)
-	rootCmd.AddCommand(runCmd)
-	rootCmd.AddCommand(removeCmd)
-	rootCmd.Execute()
 }

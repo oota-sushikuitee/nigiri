@@ -1,4 +1,4 @@
-name: reviewdog / golangci-lint
+name: golangci-lint
 
 on:
   pull_request:
@@ -13,8 +13,13 @@ jobs:
     steps:
       - name: checkout
         uses: actions/checkout@v4
+
+      - name: setup go
+        uses: actions/setup-go@v5
         with:
-          fetch-depth: 0
+          go-version-file: "go.mod"
 
       - name: golangci-lint
-        uses: reviewdog/action-golangci-lint@v2
+        uses: golangci/golangci-lint-action@v5
+        with:
+          version: latest
