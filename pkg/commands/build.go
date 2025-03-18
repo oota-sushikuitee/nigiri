@@ -271,7 +271,7 @@ func (c *buildCommand) executeBuild(target string) error {
 	case "darwin":
 		cmd = buildCmd.Darwin
 	default:
-		return logger.CreateErrorf("unsupported OS: %s", os)
+		return logger.CreateErrorf("unsupported OS: %s", runtime.GOOS)
 	}
 
 	if cmd == "" {
