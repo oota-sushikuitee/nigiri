@@ -16,7 +16,13 @@ func TestClone(t *testing.T) {
 		Source: testCloneRepo,
 	}
 
-	err := g.Clone(testDir)
+	opts := Options{
+		Depth:      1,
+		Verbose:    false,
+		AuthMethod: AuthNone,
+	}
+
+	err := g.Clone(testDir, opts)
 	if err != nil {
 		t.Errorf("Failed to clone repository: %v", err)
 	}
@@ -37,7 +43,14 @@ func TestGetRemoteHead(t *testing.T) {
 		Source: testCloneRepo,
 	}
 
-	err := g.Clone(testDir)
+	// 新しいOptionsの構造体を使用
+	opts := Options{
+		Depth:      1,
+		Verbose:    false,
+		AuthMethod: AuthNone,
+	}
+
+	err := g.Clone(testDir, opts)
 	if err != nil {
 		t.Errorf("Failed to clone repository: %v", err)
 	}

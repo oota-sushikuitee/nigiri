@@ -3,11 +3,12 @@ package config
 import (
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
+
+	internalconfig "github.com/oota-sushikuitee/nigiri/internal/models/config"
 )
 
-func setupTestConfig(t *testing.T) (string, *Config) {
+func setupTestConfig(t *testing.T) (string, *ConfigManager) {
 	// Create a temporary directory for config test
 	tempDir, err := os.MkdirTemp("", "nigiri-config-test")
 	if err != nil {
@@ -28,7 +29,6 @@ targets:
     env:
       - "GO111MODULE=on"
       - "CGO_ENABLED=0"
-
   another-target:
     source: https://github.com/Okabe-Junya/.github
     default-branch: main
@@ -36,13 +36,11 @@ targets:
       linux: make build
       windows: make build
       darwin: make build
-
 defaults:
   linux: make build
   windows: make build
   darwin: make build
 `
-
 	configPath := filepath.Join(tempDir, ".nigiri.yml")
 	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
 		t.Fatalf("Failed to write test config: %v", err)
@@ -50,28 +48,69 @@ defaults:
 	}
 
 	// Create a config instance
-	cfg := NewConfig()
-	cfg.SetCfgDir(tempDir)
+	cm := NewConfigManager()
+	cm.Config.SetCfgDir(tempDir)
+	return tempDir, cm
+}
 
-	return tempDir, cfg
+func setupInvalidYamlConfig(t *testing.T) (string, *ConfigManager) {
+	tempDir, err := os.MkdirTemp("", "nigiri-invalid-config-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+
+	// Create an invalid YAML config file
+	invalidContent := `
+targets:
+  invalid-yaml:
+    - this is not valid yaml
+      indentation is wrong
+    source: https://example.com
+    default-branch: main
+  build-command: not-a-map
+defaults:
+  - also: invalid
+`
+	configPath := filepath.Join(tempDir, ".nigiri.yml")
+	if err := os.WriteFile(configPath, []byte(invalidContent), 0644); err != nil {
+		t.Fatalf("Failed to write invalid test config: %v", err)
+		os.RemoveAll(tempDir)
+	}
+
+	cm := NewConfigManager()
+	cm.Config.SetCfgDir(tempDir)
+	return tempDir, cm
 }
 
 func cleanupTestConfig(tempDir string) {
 	os.RemoveAll(tempDir)
 }
 
-func TestNewConfig(t *testing.T) {
-	cfg := NewConfig()
-	if cfg == nil {
-		t.Error("NewConfig() returned nil")
+func TestNewConfigManager(t *testing.T) {
+	cm := NewConfigManager()
+	if cm == nil {
+		t.Error("NewConfigManager() returned nil")
+	}
+	if cm.Config == nil {
+		t.Error("NewConfigManager().Config is nil")
+	}
+}
+
+func TestConfigManager_GetConfig(t *testing.T) {
+	cm := NewConfigManager()
+	config := cm.GetConfig()
+	if config == nil {
+		t.Error("GetConfig() returned nil")
 	}
 }
 
 func TestConfig_GetSetCfgDir(t *testing.T) {
-	cfg := NewConfig()
+	// 既存のNewConfigではホームディレクトリが設定されるため、
+	// 空のcfgDirでConfigを直接初期化する
+	cfg := &internalconfig.Config{}
 	testDir := "/test/config/dir"
 
-	// Initial value should be empty
+	// 初期値は空のはず
 	if dir := cfg.GetCfgDir(); dir != "" {
 		t.Errorf("Initial config dir expected to be empty, got %s", dir)
 	}
@@ -83,22 +122,22 @@ func TestConfig_GetSetCfgDir(t *testing.T) {
 	}
 }
 
-func TestConfig_LoadCfgFile(t *testing.T) {
-	tempDir, cfg := setupTestConfig(t)
+func TestConfigManager_LoadCfgFile(t *testing.T) {
+	tempDir, cm := setupTestConfig(t)
 	defer cleanupTestConfig(tempDir)
 
-	err := cfg.LoadCfgFile()
+	err := cm.LoadCfgFile()
 	if err != nil {
 		t.Fatalf("LoadCfgFile() error = %v", err)
 	}
 
 	// Verify loaded configuration
-	if len(cfg.Targets) != 2 {
-		t.Errorf("Expected 2 targets, got %d", len(cfg.Targets))
+	if len(cm.Config.Targets) != 2 {
+		t.Errorf("Expected 2 targets, got %d", len(cm.Config.Targets))
 	}
 
 	// Check first target
-	target1, exists := cfg.Targets["test-target"]
+	target1, exists := cm.Config.Targets["test-target"]
 	if !exists {
 		t.Error("test-target not found in loaded config")
 	} else {
@@ -117,7 +156,7 @@ func TestConfig_LoadCfgFile(t *testing.T) {
 	}
 
 	// Check second target
-	target2, exists := cfg.Targets["another-target"]
+	target2, exists := cm.Config.Targets["another-target"]
 	if !exists {
 		t.Error("another-target not found in loaded config")
 	} else {
@@ -130,36 +169,95 @@ func TestConfig_LoadCfgFile(t *testing.T) {
 	}
 
 	// Check defaults
-	if cfg.Defaults.Linux != "make build" {
-		t.Errorf("Default Linux build command = %s, want %s", cfg.Defaults.Linux, "make build")
+	if cm.Config.Defaults.Linux != "make build" {
+		t.Errorf("Default Linux build command = %s, want %s", cm.Config.Defaults.Linux, "make build")
 	}
 }
 
-func TestConfig_LoadCfgFile_NonExistentFile(t *testing.T) {
-	cfg := NewConfig()
-	cfg.SetCfgDir("/non/existent/directory")
-	err := cfg.LoadCfgFile()
+func TestConfigManager_LoadCfgFile_NonExistentFile(t *testing.T) {
+	cm := NewConfigManager()
+	cm.Config.SetCfgDir("/non/existent/directory")
+	err := cm.LoadCfgFile()
 	if err == nil {
 		t.Error("LoadCfgFile() expected error for non-existent file")
+	}
+}
+
+// Test loading an invalid YAML file
+func TestConfigManager_LoadCfgFile_InvalidYaml(t *testing.T) {
+	tempDir, cm := setupInvalidYamlConfig(t)
+	defer cleanupTestConfig(tempDir)
+
+	err := cm.LoadCfgFile()
+	if err == nil {
+		t.Error("LoadCfgFile() should return error for invalid YAML")
+	}
+}
+
+// Test loading a config file with empty config directory
+func TestConfigManager_LoadCfgFile_EmptyCfgDir(t *testing.T) {
+	cm := NewConfigManager()
+	cm.Config.SetCfgDir("")
+	err := cm.LoadCfgFile()
+
+	// The function should handle empty cfgDir by using home directory
+	if err == nil {
+		// If there's a valid config in the default location, this might not error
+		// So we just check that cfgDir was set to something
+		if cm.Config.GetCfgDir() == "" {
+			t.Error("LoadCfgFile() didn't set cfgDir when it was empty")
+		}
+	}
+}
+
+// Test loading a file with empty targets
+func TestConfigManager_LoadCfgFile_NoTargets(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "nigiri-empty-config-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	emptyConfig := `defaults:
+  linux: make build
+  windows: make build
+  darwin: make build`
+
+	configPath := filepath.Join(tempDir, ".nigiri.yml")
+	if err := os.WriteFile(configPath, []byte(emptyConfig), 0644); err != nil {
+		t.Fatalf("Failed to write empty test config: %v", err)
+	}
+
+	cm := NewConfigManager()
+	cm.Config.SetCfgDir(tempDir)
+	err = cm.LoadCfgFile()
+	if err == nil {
+		t.Error("LoadCfgFile() should return error when no targets are defined")
 	}
 }
 
 func TestBuildCommand_BinaryPath(t *testing.T) {
 	tests := []struct {
 		name        string
-		buildCmd    BuildCommand
+		buildCmd    internalconfig.BuildCommand
 		wantPath    string
 		wantHasPath bool
 	}{
 		{
 			name:        "with binary path",
-			buildCmd:    BuildCommand{BinaryPathValue: "bin/app"},
+			buildCmd:    internalconfig.BuildCommand{BinaryPathValue: "bin/app"},
 			wantPath:    "bin/app",
 			wantHasPath: true,
 		},
 		{
 			name:        "without binary path",
-			buildCmd:    BuildCommand{},
+			buildCmd:    internalconfig.BuildCommand{},
+			wantPath:    "",
+			wantHasPath: false,
+		},
+		{
+			name:        "with empty binary path",
+			buildCmd:    internalconfig.BuildCommand{BinaryPathValue: ""},
 			wantPath:    "",
 			wantHasPath: false,
 		},
@@ -178,39 +276,92 @@ func TestBuildCommand_BinaryPath(t *testing.T) {
 	}
 }
 
-func TestConfig_SaveCfgFile(t *testing.T) {
-	tempDir, cfg := setupTestConfig(t)
+func TestConfigManager_SaveCfgFile(t *testing.T) {
+	tempDir, cm := setupTestConfig(t)
 	defer cleanupTestConfig(tempDir)
 
 	// Load the existing config
-	if err := cfg.LoadCfgFile(); err != nil {
+	if err := cm.LoadCfgFile(); err != nil {
 		t.Fatalf("Failed to load test config: %v", err)
 	}
 
 	// Modify the config
-	cfg.Targets["new-target"] = Target{
-		Target:        "new-target",
+	cm.Config.Targets["new-target"] = internalconfig.Target{
 		Sources:       "https://github.com/Okabe-Junya/dotfiles",
 		DefaultBranch: "main",
-		BuildCommand: BuildCommand{
-			Linux:   "make build",
-			Windows: "make build",
-			Darwin:  "make build",
+		BuildCommand: internalconfig.BuildCommand{
+			Linux:           "make build",
+			Windows:         "make build",
+			Darwin:          "make build",
+			BinaryPathValue: "/usr/local/bin/test",
 		},
-		Env: []string{"TEST_ENV=value"},
+		Env:              []string{"TEST_ENV=value"},
+		WorkingDirectory: "/tmp",
+		BinaryOnly:       true,
 	}
 
-	// Instead, verify the data structure is correct
-	newTarget, exists := cfg.Targets["new-target"]
+	// Save the modified config
+	err := cm.SaveCfgFile()
+	if err != nil {
+		t.Fatalf("SaveCfgFile() error = %v", err)
+	}
+
+	// Create a new config instance and load the saved file
+	newCm := NewConfigManager()
+	newCm.Config.SetCfgDir(tempDir)
+	if err := newCm.LoadCfgFile(); err != nil {
+		t.Fatalf("Failed to load saved config: %v", err)
+	}
+
+	// Verify the new config has the added target
+	newTarget, exists := newCm.Config.Targets["new-target"]
 	if !exists {
-		t.Error("Failed to add new target to config")
+		t.Error("new-target not found in saved config")
+	} else {
+		if newTarget.Sources != "https://github.com/Okabe-Junya/dotfiles" {
+			t.Errorf("Saved target source = %s, want %s", newTarget.Sources, "https://github.com/Okabe-Junya/dotfiles")
+		}
+		if !newTarget.BinaryOnly {
+			t.Error("Saved target binary-only flag was not persisted")
+		}
+		if newTarget.WorkingDirectory != "/tmp" {
+			t.Errorf("Saved target working directory = %s, want %s", newTarget.WorkingDirectory, "/tmp")
+		}
+		path, hasPath := newTarget.BuildCommand.BinaryPath()
+		if !hasPath {
+			t.Error("Saved target binary path was not persisted")
+		} else if path != "/usr/local/bin/test" {
+			t.Errorf("Saved target binary path = %s, want %s", path, "/usr/local/bin/test")
+		}
 	}
 
-	if newTarget.Sources != "https://github.com/Okabe-Junya/dotfiles" {
-		t.Errorf("New target source = %s, want %s", newTarget.Sources, "https://github.com/Okabe-Junya/dotfiles")
+	// Verify original targets still exist
+	if _, exists := newCm.Config.Targets["test-target"]; !exists {
+		t.Error("test-target not found in saved config")
+	}
+	if _, exists := newCm.Config.Targets["another-target"]; !exists {
+		t.Error("another-target not found in saved config")
+	}
+}
+
+// Test saving to a directory with insufficient permissions
+func TestConfigManager_SaveCfgFile_PermissionDenied(t *testing.T) {
+	// Skip on Windows where permissions work differently
+	if os.Getenv("GOOS") == "windows" {
+		t.Skip("Skipping permission test on Windows")
 	}
 
-	if !reflect.DeepEqual(newTarget.Env, []string{"TEST_ENV=value"}) {
-		t.Errorf("New target env = %v, want %v", newTarget.Env, []string{"TEST_ENV=value"})
+	// Only run if not running as root
+	if os.Geteuid() == 0 {
+		t.Skip("Skipping permission test when running as root")
+	}
+
+	cm := NewConfigManager()
+	cm.Config.SetCfgDir("/root/.nigiri") // A directory normal users can't write to
+
+	// Should fail to save
+	err := cm.SaveCfgFile()
+	if err == nil {
+		t.Error("SaveCfgFile() should fail when writing to a protected directory")
 	}
 }

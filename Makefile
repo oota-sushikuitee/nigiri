@@ -1,6 +1,5 @@
 DEFAULT_GOAL := build
 
-
 .PHONY: build
 build:
 	go build -o bin/nigiri ./cmd/nigiri
