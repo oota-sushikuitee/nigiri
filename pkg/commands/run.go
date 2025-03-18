@@ -384,8 +384,19 @@ func extractTarGz(tarGzPath, destDir string) error {
 			return fmt.Errorf("tar reading error: %w", err)
 		}
 
+		// Clean and validate the path
+		cleanName := filepath.Clean(header.Name)
+		if strings.Contains(cleanName, "..") {
+			return fmt.Errorf("invalid file path in archive: %s", cleanName)
+		}
+
 		// Get file path
-		filePath := filepath.Join(destDir, header.Name)
+		filePath := filepath.Join(destDir, cleanName)
+
+		// Additional validation: ensure the final path is within the destination directory
+		if !strings.HasPrefix(filepath.Clean(filePath), filepath.Clean(destDir)) {
+			return fmt.Errorf("attempted path traversal in archive: %s", cleanName)
+		}
 
 		// Create directories if needed
 		if header.Typeflag == tar.TypeDir {
