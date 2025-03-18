@@ -1,10 +1,10 @@
 package commands
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 
+	"github.com/oota-sushikuitee/nigiri/pkg/logger"
 	"github.com/spf13/cobra"
 )
 
@@ -39,7 +39,7 @@ func newInitCommand() *initCommand {
 func (c *initCommand) executeInit() error {
 	// Create nigiri root directory if it doesn't exist
 	if err := os.MkdirAll(nigiriRoot, 0755); err != nil {
-		return fmt.Errorf("failed to create nigiri root directory: %w", err)
+		return logger.CreateErrorf("failed to create nigiri root directory: %w", err)
 	}
 
 	// Configuration file path
@@ -50,8 +50,8 @@ func (c *initCommand) executeInit() error {
 		c.cmd.Printf("Configuration file already exists at %s\n", configFilePath)
 		c.cmd.Print("Do you want to overwrite it? (y/n): ")
 		var confirm string
-		if _, err := fmt.Scanln(&confirm); err != nil {
-			return fmt.Errorf("failed to read confirmation: %w", err)
+		if err := logger.ReadInput(&confirm); err != nil {
+			return logger.CreateErrorf("failed to read confirmation: %w", err)
 		}
 		if confirm != "y" && confirm != "Y" {
 			c.cmd.Println("Initialization cancelled.")
@@ -66,37 +66,44 @@ func (c *initCommand) executeInit() error {
 targets:
   # Example target
   sample-project:
-    source: https://github.com/username/sample-project
+    source: https://github.com/oota-sushikuitee/nigiri
     default-branch: main
+    # The directory within the repository to run the build command (optional)
+    working-directory: ""
+    # Whether to keep only the binary and remove source code after build (optional)
+    binary-only: false
     build-command:
       linux: make build
       windows: make build
       darwin: make build
+      # Path to the built binary (relative to working directory or repository root)
+      binary-path: bin/nigiri
     env:
       - "GO111MODULE=on"
       - "CGO_ENABLED=0"
 
   # You can add more targets here
   # another-project:
-  #   source: https://github.com/username/another-project
+  #   source: https://github.com/oota-sushikuitee/nigiri
   #   default-branch: master
+  #   working-directory: "cmd/app"
+  #   binary-only: true
   #   build-command:
   #     linux: make linux
   #     windows: make windows
   #     darwin: make darwin
-  #   binary-path: bin/project-binary
+  #     binary-path: bin/app
 
 # Default settings for all targets
 defaults:
-  build-command:
-    linux: make build
-    windows: make build
-    darwin: make build
+  linux: make build
+  windows: make build
+  darwin: make build
 `
 
 	// Write the configuration file
 	if err := os.WriteFile(configFilePath, []byte(sampleConfig), 0644); err != nil {
-		return fmt.Errorf("failed to write configuration file: %w", err)
+		return logger.CreateErrorf("failed to write configuration file: %w", err)
 	}
 
 	c.cmd.Printf("Configuration file created at %s\n", configFilePath)

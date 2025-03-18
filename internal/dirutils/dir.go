@@ -1,12 +1,13 @@
 package dirutils
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/oota-sushikuitee/nigiri/pkg/logger"
 )
 
 // DirEntry represents a directory entry with its name, time, and whether it's a directory
@@ -55,7 +56,7 @@ func SortDirEntriesByName(entries []DirEntry, descending bool) {
 func GetDirEntries(dir string, filter string) ([]DirEntry, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read directory: %w", err)
+		return nil, logger.CreateErrorf("failed to read directory: %w", err)
 	}
 
 	var result []DirEntry
@@ -114,7 +115,7 @@ func EnsureDirExists(dir string) error {
 func CleanOldDirs(parentDir string, maxDirs int, maxAge time.Duration) error {
 	entries, err := os.ReadDir(parentDir)
 	if err != nil {
-		return fmt.Errorf("failed to read directory: %w", err)
+		return logger.CreateErrorf("failed to read directory: %w", err)
 	}
 
 	var dirs []DirEntry
@@ -140,7 +141,7 @@ func CleanOldDirs(parentDir string, maxDirs int, maxAge time.Duration) error {
 		for i := 0; i < len(dirs)-maxDirs; i++ {
 			dirToRemove := filepath.Join(parentDir, dirs[i].Name)
 			if err := os.RemoveAll(dirToRemove); err != nil {
-				return fmt.Errorf("failed to remove directory %s: %w", dirToRemove, err)
+				return logger.CreateErrorf("failed to remove directory %s: %w", dirToRemove, err)
 			}
 		}
 	}
@@ -152,11 +153,23 @@ func CleanOldDirs(parentDir string, maxDirs int, maxAge time.Duration) error {
 			if now.Sub(dir.ModTime) > maxAge {
 				dirToRemove := filepath.Join(parentDir, dir.Name)
 				if err := os.RemoveAll(dirToRemove); err != nil {
-					return fmt.Errorf("failed to remove directory %s: %w", dirToRemove, err)
+					return logger.CreateErrorf("failed to remove directory %s: %w", dirToRemove, err)
 				}
 			}
 		}
 	}
 
 	return nil
+}
+
+// Exists checks if a file or directory exists at the given path
+//
+// Parameters:
+//   - path: The path to check
+//
+// Returns:
+//   - bool: True if the file or directory exists, false otherwise
+func Exists(path string) bool {
+	_, err := os.Stat(path)
+	return !os.IsNotExist(err)
 }

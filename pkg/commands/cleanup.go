@@ -8,7 +8,8 @@ import (
 	"time"
 
 	"github.com/oota-sushikuitee/nigiri/internal/dirutils"
-	"github.com/oota-sushikuitee/nigiri/pkg/fsutils"
+	"github.com/oota-sushikuitee/nigiri/internal/targets"
+	"github.com/oota-sushikuitee/nigiri/pkg/commits"
 	"github.com/spf13/cobra"
 )
 
@@ -138,7 +139,11 @@ func (c *cleanupCommand) showDiskUsage() error {
 // Returns:
 //   - error: Any error encountered during the cleanup process
 func (c *cleanupCommand) executeCleanup(target string) error {
-	fsTarget := fsutils.Target{Target: target}
+	// Create target directory if it doesn't exist
+	fsTarget := targets.Target{
+		Target:  target,
+		Commits: commits.Commits{},
+	}
 	targetRootDir, err := fsTarget.GetTargetRootDir(nigiriRoot)
 	if err != nil {
 		return fmt.Errorf("target '%s' not found", target)

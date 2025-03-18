@@ -7,8 +7,9 @@ import (
 	"sort"
 	"time"
 
+	"github.com/oota-sushikuitee/nigiri/internal/targets"
+	"github.com/oota-sushikuitee/nigiri/pkg/commits"
 	"github.com/oota-sushikuitee/nigiri/pkg/config"
-	"github.com/oota-sushikuitee/nigiri/pkg/fsutils"
 	"github.com/spf13/cobra"
 )
 
@@ -102,7 +103,11 @@ type commitInfo struct {
 // Returns:
 //   - error: Any error encountered while reading the target directory or commit information
 func (c *listCommand) listTargetCommits(target string) error {
-	fsTarget := fsutils.Target{Target: target}
+	// Create Target instance
+	fsTarget := targets.Target{
+		Target:  target,
+		Commits: commits.Commits{},
+	}
 	targetDir, err := fsTarget.GetTargetRootDir(nigiriRoot)
 	if err != nil {
 		return err
@@ -146,9 +151,9 @@ func (c *listCommand) listTargetCommits(target string) error {
 	})
 
 	// Get configuration information
-	cfg := config.NewConfig()
-	if err := cfg.LoadCfgFile(); err == nil {
-		if targetCfg, ok := cfg.Targets[target]; ok {
+	cm := config.NewConfigManager()
+	if err := cm.LoadCfgFile(); err == nil {
+		if targetCfg, ok := cm.Config.Targets[target]; ok {
 			c.cmd.Printf("Target: %s\n", target)
 			c.cmd.Printf("Source: %s\n", targetCfg.Sources)
 			c.cmd.Printf("Default branch: %s\n", targetCfg.DefaultBranch)
