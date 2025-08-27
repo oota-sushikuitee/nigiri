@@ -3,6 +3,7 @@ package commands
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -290,7 +291,7 @@ func (c *buildCommand) executeBuild(target string) error {
 	c.cmd.Printf("Building target '%s' with command: %s\n", target, cmd)
 	buildStartTime := time.Now()
 
-	execCmd := exec.Command("/bin/sh", "-c", cmd)
+	execCmd := exec.CommandContext(context.Background(), "/bin/sh", "-c", cmd)
 	execCmd.Stdout = buildLogFile
 	execCmd.Stderr = buildLogFile
 

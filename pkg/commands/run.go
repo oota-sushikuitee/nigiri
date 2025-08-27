@@ -3,6 +3,7 @@ package commands
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -338,7 +339,7 @@ func (c *runCommand) executeRun(target, commitHash string, args []string) error 
 	}
 
 	// Setup command execution with proper argument handling
-	cmd := exec.Command(binaryPath, args...)
+	cmd := exec.CommandContext(context.Background(), binaryPath, args...)
 	cmd.Stdout = c.cmd.OutOrStdout()
 	cmd.Stderr = c.cmd.ErrOrStderr()
 	cmd.Stdin = os.Stdin

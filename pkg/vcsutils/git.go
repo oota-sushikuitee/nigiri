@@ -61,7 +61,7 @@ func getGitHubToken() (string, error) {
 	}
 
 	// Then try gh cli
-	cmd := exec.Command("gh", "auth", "token")
+	cmd := exec.CommandContext(context.Background(), "gh", "auth", "token")
 	output, err := cmd.Output()
 	if err == nil {
 		token = strings.TrimSpace(string(output))
