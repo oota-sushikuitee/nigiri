@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"time"
 
 	"github.com/oota-sushikuitee/nigiri/internal/targets"
@@ -35,6 +34,8 @@ type buildCommand struct {
 	forceBuild bool
 	// useToken enables GitHub token authentication
 	useToken bool
+	// timeout is the build timeout in minutes (0 = no timeout)
+	timeout int
 }
 
 // newBuildCommand creates a new build command instance which is responsible for
@@ -76,6 +77,7 @@ If the target has already been built at the specified commit, the build will be 
 	flags.IntVarP(&c.depth, "depth", "d", 1, "Git clone depth (use 0 for full history)")
 	flags.BoolVarP(&c.forceBuild, "force", "f", false, "Force rebuild even if the target has already been built at the specified commit")
 	flags.BoolVarP(&c.useToken, "use-token", "t", false, "Use GitHub token for authentication (required for private repositories)")
+	flags.IntVar(&c.timeout, "timeout", 30, "Build timeout in minutes (0 = no timeout)")
 
 	c.cmd = cmd
 	return c
@@ -83,18 +85,7 @@ If the target has already been built at the specified commit, the build will be 
 
 // getCompletionTargets returns a list of available targets for command completion
 func (c *buildCommand) getCompletionTargets(prefix string) []string {
-	cm := config.NewConfigManager()
-	if err := cm.LoadCfgFile(); err != nil {
-		return nil
-	}
-
-	var targets []string
-	for target := range cm.Config.Targets {
-		if strings.HasPrefix(target, prefix) {
-			targets = append(targets, target)
-		}
-	}
-	return targets
+	return getConfiguredTargets(prefix)
 }
 
 // executeBuild handles the build process for the specified target.
@@ -285,13 +276,30 @@ func (c *buildCommand) executeBuild(target string) error {
 	if err != nil {
 		return logger.CreateErrorf("failed to create build log file: %w", err)
 	}
-	defer buildLogFile.Close()
+	defer func() {
+		if err := buildLogFile.Close(); err != nil {
+			logger.Warnf("failed to close build log file: %v", err)
+		}
+	}()
 
 	// Run the build command
 	c.cmd.Printf("Building target '%s' with command: %s\n", target, cmd)
+	if c.timeout > 0 {
+		c.cmd.Printf("Build timeout: %d minutes\n", c.timeout)
+	}
 	buildStartTime := time.Now()
 
-	execCmd := exec.CommandContext(context.Background(), "/bin/sh", "-c", cmd)
+	// Create context with timeout if specified
+	var ctx context.Context
+	var cancel context.CancelFunc
+	if c.timeout > 0 {
+		ctx, cancel = context.WithTimeout(context.Background(), time.Duration(c.timeout)*time.Minute)
+		defer cancel()
+	} else {
+		ctx = context.Background()
+	}
+
+	execCmd := exec.CommandContext(ctx, "/bin/sh", "-c", cmd)
 	execCmd.Stdout = buildLogFile
 	execCmd.Stderr = buildLogFile
 
@@ -307,13 +315,22 @@ func (c *buildCommand) executeBuild(target string) error {
 	}
 
 	buildErr := execCmd.Run()
+
+	// Check if the build was killed due to timeout
+	if ctx.Err() == context.DeadlineExceeded {
+		buildErr = logger.CreateErrorf("build timed out after %d minutes", c.timeout)
+	}
 	buildDuration := time.Since(buildStartTime)
 
 	// Create a build metadata file
 	metadataPath := filepath.Join(commitDir, "build-info.txt")
 	metaFile, err := os.Create(metadataPath)
 	if err == nil {
-		defer metaFile.Close()
+		defer func() {
+			if err := metaFile.Close(); err != nil {
+				logger.Warnf("failed to close metadata file: %v", err)
+			}
+		}()
 		if _, err := metaFile.WriteString(fmt.Sprintf("Target: %s\n", target)); err != nil {
 			logger.Warnf("Failed to write target info: %v", err)
 		}
@@ -397,17 +414,26 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open source file: %w", err)
 	}
-	defer sourceFile.Close()
+	defer func() {
+		if err := sourceFile.Close(); err != nil {
+			logger.Warnf("failed to close source file %s: %v", src, err)
+		}
+	}()
 
 	// Create destination file
 	destFile, err := os.Create(dst)
 	if err != nil {
 		return fmt.Errorf("failed to create destination file: %w", err)
 	}
-	defer destFile.Close()
+	defer func() {
+		if err := destFile.Close(); err != nil {
+			logger.Warnf("failed to close destination file %s: %v", dst, err)
+		}
+	}()
 
-	// Copy file contents
-	if _, err := io.Copy(destFile, sourceFile); err != nil {
+	// Copy file contents with size limit
+	limitedReader := io.LimitReader(sourceFile, maxFileSizeForArchive)
+	if _, err := io.Copy(destFile, limitedReader); err != nil {
 		return fmt.Errorf("failed to copy file: %w", err)
 	}
 
@@ -425,6 +451,9 @@ func copyFile(src, dst string) error {
 	return nil
 }
 
+// maxFileSizeForArchive is the maximum file size allowed in archives (1GB)
+const maxFileSizeForArchive = 1 << 30
+
 // compressDirectory compresses a directory into a tar.gz file
 func compressDirectory(srcDir, tarGzPath string) error {
 	// Create tar.gz file
@@ -432,15 +461,27 @@ func compressDirectory(srcDir, tarGzPath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create tar.gz file: %w", err)
 	}
-	defer tarGzFile.Close()
+	defer func() {
+		if err := tarGzFile.Close(); err != nil {
+			logger.Warnf("failed to close tar.gz file: %v", err)
+		}
+	}()
 
 	// Create gzip writer
 	gzipWriter := gzip.NewWriter(tarGzFile)
-	defer gzipWriter.Close()
+	defer func() {
+		if err := gzipWriter.Close(); err != nil {
+			logger.Warnf("failed to close gzip writer: %v", err)
+		}
+	}()
 
 	// Create tar writer
 	tarWriter := tar.NewWriter(gzipWriter)
-	defer tarWriter.Close()
+	defer func() {
+		if err := tarWriter.Close(); err != nil {
+			logger.Warnf("failed to close tar writer: %v", err)
+		}
+	}()
 
 	// Walk through directory and add files to tar
 	return filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
@@ -476,17 +517,33 @@ func compressDirectory(srcDir, tarGzPath string) error {
 			return nil
 		}
 
-		// Open and copy file contents to tar
-		file, err := os.Open(path)
-		if err != nil {
-			return fmt.Errorf("failed to open file: %w", err)
-		}
-		defer file.Close()
-
-		if _, err := io.Copy(tarWriter, file); err != nil {
-			return fmt.Errorf("failed to write file to tar: %w", err)
+		// Add file to tar using helper function to avoid defer accumulation in Walk
+		if err := addFileToTar(tarWriter, path); err != nil {
+			return err
 		}
 
 		return nil
 	})
+}
+
+// addFileToTar adds a single file to the tar archive with proper resource cleanup
+// and size limits to prevent resource exhaustion
+func addFileToTar(tarWriter *tar.Writer, path string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("failed to open file: %w", err)
+	}
+	defer func() {
+		if err := file.Close(); err != nil {
+			logger.Warnf("failed to close file %s: %v", path, err)
+		}
+	}()
+
+	// Use LimitReader to prevent reading extremely large files
+	limitedReader := io.LimitReader(file, maxFileSizeForArchive)
+	if _, err := io.Copy(tarWriter, limitedReader); err != nil {
+		return fmt.Errorf("failed to write file to tar: %w", err)
+	}
+
+	return nil
 }

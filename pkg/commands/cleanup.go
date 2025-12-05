@@ -67,20 +67,7 @@ Without arguments, shows the current disk usage of builds.`,
 
 // getCompletionTargets returns a list of available targets for command completion
 func (c *cleanupCommand) getCompletionTargets(prefix string) []string {
-	entries, err := os.ReadDir(nigiriRoot)
-	if err != nil {
-		return nil
-	}
-
-	var targets []string
-	for _, entry := range entries {
-		if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") {
-			if prefix == "" || strings.HasPrefix(entry.Name(), prefix) {
-				targets = append(targets, entry.Name())
-			}
-		}
-	}
-	return targets
+	return getInstalledTargets(prefix)
 }
 
 // showDiskUsage displays disk usage information for all targets
@@ -101,7 +88,7 @@ func (c *cleanupCommand) showDiskUsage() error {
 	totalSize := int64(0)
 
 	for _, entry := range entries {
-		if entry.IsDir() && !filepath.HasPrefix(entry.Name(), ".") {
+		if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") {
 			targetDir := filepath.Join(nigiriRoot, entry.Name())
 			size, err := dirutils.GetDirSize(targetDir)
 			if err != nil {
@@ -273,7 +260,7 @@ func (c *cleanupCommand) executeCleanupAll() error {
 
 	var targets []string
 	for _, entry := range entries {
-		if entry.IsDir() && !filepath.HasPrefix(entry.Name(), ".") {
+		if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") {
 			targets = append(targets, entry.Name())
 		}
 	}
