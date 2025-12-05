@@ -1,108 +1,113 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":semanticCommits",
+    ":preserveSemverRanges"
+  ],
   "timezone": "Asia/Tokyo",
   "schedule": [
-    "after 1am and before 6am on monday"
+    "after 3am and before 6am on monday"
   ],
-  "automergeSchedule": [
-    "after 1am and before 6am on monday"
-  ],
-  "prHourlyLimit": 0,
+  "prHourlyLimit": 2,
+  "prConcurrentLimit": 5,
   "dependencyDashboard": true,
-  "autoApprove": true,
-  "updateNotScheduled": false,
+  "labels": [
+    "dependencies"
+  ],
+  "commitMessagePrefix": "chore(deps):",
   "packageRules": [
     {
-      "matchPackageNames": [
-        "*"
-      ],
-      "rangeStrategy": "replace"
-    },
-    {
+      "description": "Go modules configuration",
       "matchCategories": [
         "golang"
       ],
-      "commitMessageAction": "Bump",
-      "commitMessageExtra": "to {{newValue}}",
-      "commitMessageTopic": "module {{depName}}",
       "postUpdateOptions": [
         "gomodTidy",
         "gomodUpdateImportPaths"
       ]
     },
     {
-      "matchUpdateTypes": [
-        "pin"
-      ],
-      "addLabels": [
-        "renovate:pin"
-      ]
-    },
-    {
-      "matchUpdateTypes": [
-        "major"
-      ],
-      "addLabels": [
-        "renovate:major"
-      ],
-      "minimumReleaseAge": "7 days"
-    },
-    {
-      "matchUpdateTypes": [
-        "minor"
-      ],
-      "addLabels": [
-        "renovate:minor"
-      ],
-      "minimumReleaseAge": "5 days"
-    },
-    {
-      "matchUpdateTypes": [
-        "patch"
-      ],
-      "addLabels": [
-        "renovate:patch"
-      ],
-      "minimumReleaseAge": "3 days",
-      "automerge": true
-    },
-    {
-      "matchDepTypes": [
-        "action"
-      ],
-      "pinDigests": true
-    },
-    {
+      "description": "Group Go version updates",
       "groupName": "Go version",
       "matchDatasources": [
         "golang-version"
       ]
     },
     {
-      "groupName": "Go version",
-      "matchManagers": [
-        "dockerfile"
-      ],
-      "matchPackageNames": [
-        "golang"
-      ]
-    },
-    {
-      "groupName": "golang.org/x/...",
+      "description": "Group golang.org/x packages",
+      "groupName": "golang.org/x packages",
       "automerge": true,
       "matchPackageNames": [
         "/^golang.org/x//"
       ]
+    },
+    {
+      "description": "GitHub Actions - pin digests for security",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "pinDigests": true
+    },
+    {
+      "description": "Major updates - require manual review",
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "labels": [
+        "dependencies",
+        "major"
+      ],
+      "minimumReleaseAge": "7 days",
+      "automerge": false
+    },
+    {
+      "description": "Minor updates",
+      "matchUpdateTypes": [
+        "minor"
+      ],
+      "labels": [
+        "dependencies",
+        "minor"
+      ],
+      "minimumReleaseAge": "3 days",
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "description": "Patch updates - auto-merge",
+      "matchUpdateTypes": [
+        "patch"
+      ],
+      "labels": [
+        "dependencies",
+        "patch"
+      ],
+      "minimumReleaseAge": "1 day",
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "description": "Pin updates",
+      "matchUpdateTypes": [
+        "pin"
+      ],
+      "labels": [
+        "dependencies",
+        "pin"
+      ],
+      "automerge": true
     }
   ],
   "customManagers": [
     {
+      "description": "Go install commands in YAML files",
       "customType": "regex",
       "managerFilePatterns": [
-        "/.*y[a]?ml$/"
+        "/\\.ya?ml$/"
       ],
       "matchStrings": [
-        "go install (?<depName>[^@]+?)@(?<currentValue>.+)\n"
+        "go install (?<depName>[^@]+?)@(?<currentValue>.+?)\\n"
       ],
       "datasourceTemplate": "go"
     }
@@ -110,7 +115,8 @@
   "vulnerabilityAlerts": {
     "enabled": true,
     "labels": [
-      "renovate:security-update"
+      "dependencies",
+      "security"
     ]
   }
 }
