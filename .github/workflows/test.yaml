@@ -1,4 +1,4 @@
-name: go test
+name: Test
 
 on:
   push:
@@ -13,15 +13,16 @@ permissions:
 
 jobs:
   go-mod:
+    name: Go Module Check
     runs-on: ubuntu-latest
     steps:
-      - name: checkout
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+      - name: Checkout code
+        uses: actions/checkout@v6.0.1
 
-      - name: setup go
-        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+      - name: Set up Go
+        uses: actions/setup-go@v6.1.0
         with:
-          go-version-file: "go.mod"
+          go-version-file: go.mod
 
       - name: Check go.mod / go.sum
         run: |
@@ -30,15 +31,19 @@ jobs:
           git diff --exit-code go.sum
 
   test:
+    name: Test
     runs-on: ubuntu-latest
     steps:
-      - name: checkout
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+      - name: Checkout code
+        uses: actions/checkout@v6.0.1
 
-      - name: setup go
-        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+      - name: Set up Go
+        uses: actions/setup-go@v6.1.0
         with:
-          go-version-file: "go.mod"
+          go-version-file: go.mod
 
-      - name: run tests
-        run: make test
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run tests with coverage
+        run: go test -v -race -coverprofile=coverage.out ./...

@@ -1,0 +1,47 @@
+# Dependabot configuration for security alerts
+#
+# Strategy: Renovate + Dependabot complementary setup
+# - Renovate: All dependency version updates (Go modules, GitHub Actions)
+# - Dependabot: Security vulnerability detection and alerts
+#
+# This setup ensures:
+# 1. No conflicts: Dependabot version updates are disabled (open-pull-requests-limit: 0)
+# 2. Security coverage: Dependabot security updates still work independently
+# 3. Comprehensive scanning: Both Go modules and GitHub Actions are monitored for vulnerabilities
+#
+# IMPORTANT: Enable "Dependabot alerts" and "Dependabot security updates" in:
+# Settings > Security > Code security and analysis
+
+version: 2
+updates:
+  # Go modules - security monitoring only
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "03:00"
+      timezone: "Asia/Tokyo"
+    # Disable version updates (Renovate handles this)
+    # Security updates are NOT affected by this limit
+    open-pull-requests-limit: 0
+    commit-message:
+      prefix: "chore(deps):"
+    labels:
+      - "dependencies"
+
+  # GitHub Actions - security monitoring only
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "03:00"
+      timezone: "Asia/Tokyo"
+    # Disable version updates (Renovate handles this)
+    # Security updates are NOT affected by this limit
+    open-pull-requests-limit: 0
+    commit-message:
+      prefix: "chore(deps):"
+    labels:
+      - "dependencies"
