@@ -2,7 +2,7 @@ module github.com/oota-sushikuitee/nigiri
 
 go 1.24.0
 
-toolchain go1.25.4
+toolchain go1.25.5
 
 require (
 	github.com/go-git/go-git/v5 v5.16.4
