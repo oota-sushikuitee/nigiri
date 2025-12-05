@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/oota-sushikuitee/nigiri/internal/targets"
@@ -144,43 +145,12 @@ Examples:
 
 // getCompletionTargets returns a list of available targets for command completion
 func (c *runCommand) getCompletionTargets(prefix string) []string {
-	cm := config.NewConfigManager()
-	if err := cm.LoadCfgFile(); err != nil {
-		return nil
-	}
-
-	var targets []string
-	for target := range cm.Config.Targets {
-		if strings.HasPrefix(target, prefix) {
-			targets = append(targets, target)
-		}
-	}
-	return targets
+	return getConfiguredTargets(prefix)
 }
 
 // getCompletionCommits returns a list of available commit hashes for the specified target
 func (c *runCommand) getCompletionCommits(target, prefix string) []string {
-	fsTarget := targets.Target{
-		Target:  target,
-		Commits: commits.Commits{},
-	}
-	targetRootDir, err := fsTarget.GetTargetRootDir(nigiriRoot)
-	if err != nil {
-		return nil
-	}
-
-	dirs, err := os.ReadDir(targetRootDir)
-	if err != nil {
-		return nil
-	}
-
-	var commits []string
-	for _, dir := range dirs {
-		if dir.IsDir() && strings.HasPrefix(dir.Name(), prefix) {
-			commits = append(commits, dir.Name())
-		}
-	}
-	return commits
+	return getTargetCommits(target, prefix)
 }
 
 // executeRun executes the specified target with the given commit hash and arguments.
@@ -331,8 +301,8 @@ func (c *runCommand) executeRun(target, commitHash string, args []string) error 
 		return logger.CreateErrorf("binary not found at %s", binaryPath)
 	}
 
-	// Make sure binary is executable
-	if runtime := os.Getenv("GOOS"); runtime != "windows" {
+	// Make sure binary is executable (not needed on Windows)
+	if runtime.GOOS != "windows" {
 		if err := os.Chmod(binaryPath, 0755); err != nil {
 			return logger.CreateErrorf("failed to make binary executable: %w", err)
 		}
@@ -356,6 +326,9 @@ func (c *runCommand) executeRun(target, commitHash string, args []string) error 
 	return cmd.Run()
 }
 
+// maxFileSizeForExtract is the maximum file size allowed when extracting archives (1GB)
+const maxFileSizeForExtract = 1 << 30
+
 // extractTarGz extracts a tar.gz file to the specified directory
 func extractTarGz(tarGzPath, destDir string) error {
 	// Open the tar.gz file
@@ -363,14 +336,22 @@ func extractTarGz(tarGzPath, destDir string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open archive: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			logger.Warnf("failed to close archive file: %v", err)
+		}
+	}()
 
 	// Create gzip reader
 	gzipReader, err := gzip.NewReader(file)
 	if err != nil {
 		return fmt.Errorf("failed to create gzip reader: %w", err)
 	}
-	defer gzipReader.Close()
+	defer func() {
+		if err := gzipReader.Close(); err != nil {
+			logger.Warnf("failed to close gzip reader: %v", err)
+		}
+	}()
 
 	// Create tar reader
 	tarReader := tar.NewReader(gzipReader)
@@ -412,23 +393,37 @@ func extractTarGz(tarGzPath, destDir string) error {
 			return fmt.Errorf("failed to create parent directory: %w", err)
 		}
 
-		// Create file
-		file, err := os.Create(filePath)
-		if err != nil {
-			return fmt.Errorf("failed to create file: %w", err)
+		// Extract file using helper function for proper resource management
+		if err := extractFileFromTar(tarReader, filePath, header.Mode); err != nil {
+			return err
 		}
+	}
 
-		// Copy contents
-		if _, err := io.Copy(file, tarReader); err != nil {
-			file.Close()
-			return fmt.Errorf("failed to write file: %w", err)
-		}
-		file.Close()
+	return nil
+}
 
-		// Set file permissions
-		if err := os.Chmod(filePath, os.FileMode(header.Mode)); err != nil {
-			return fmt.Errorf("failed to set file permissions: %w", err)
+// extractFileFromTar extracts a single file from the tar reader with proper resource cleanup
+// and size limits to prevent resource exhaustion
+func extractFileFromTar(tarReader *tar.Reader, filePath string, mode int64) error {
+	file, err := os.Create(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to create file: %w", err)
+	}
+	defer func() {
+		if err := file.Close(); err != nil {
+			logger.Warnf("failed to close file %s: %v", filePath, err)
 		}
+	}()
+
+	// Use LimitReader to prevent extracting extremely large files
+	limitedReader := io.LimitReader(tarReader, maxFileSizeForExtract)
+	if _, err := io.Copy(file, limitedReader); err != nil {
+		return fmt.Errorf("failed to write file: %w", err)
+	}
+
+	// Set file permissions
+	if err := os.Chmod(filePath, os.FileMode(mode)); err != nil {
+		return fmt.Errorf("failed to set file permissions: %w", err)
 	}
 
 	return nil

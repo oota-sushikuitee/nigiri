@@ -69,44 +69,86 @@ func (cm *ConfigManager) LoadCfgFile() error {
 	for name, targetCfg := range cfg.Targets {
 		target := config.Target{}
 
-		// Handle source/sources field
+		// Handle source/sources field with safe type assertion
 		if source, ok := targetCfg["source"]; ok {
-			target.Sources = source.(string)
+			if s, ok := source.(string); ok {
+				target.Sources = s
+			} else {
+				return fmt.Errorf("invalid type for 'source' in target '%s': expected string", name)
+			}
 		} else if sources, ok := targetCfg["sources"]; ok {
-			target.Sources = sources.(string)
+			if s, ok := sources.(string); ok {
+				target.Sources = s
+			} else {
+				return fmt.Errorf("invalid type for 'sources' in target '%s': expected string", name)
+			}
 		}
 
-		// Handle other fields
+		// Handle other fields with safe type assertions
 		if branch, ok := targetCfg["default-branch"]; ok {
-			target.DefaultBranch = branch.(string)
+			if b, ok := branch.(string); ok {
+				target.DefaultBranch = b
+			} else {
+				return fmt.Errorf("invalid type for 'default-branch' in target '%s': expected string", name)
+			}
 		}
 		if binaryOnly, ok := targetCfg["binary-only"]; ok {
-			target.BinaryOnly = binaryOnly.(bool)
+			if b, ok := binaryOnly.(bool); ok {
+				target.BinaryOnly = b
+			} else {
+				return fmt.Errorf("invalid type for 'binary-only' in target '%s': expected bool", name)
+			}
 		}
 		if workingDir, ok := targetCfg["working-directory"]; ok {
-			target.WorkingDirectory = workingDir.(string)
+			if w, ok := workingDir.(string); ok {
+				target.WorkingDirectory = w
+			} else {
+				return fmt.Errorf("invalid type for 'working-directory' in target '%s': expected string", name)
+			}
 		}
 		if env, ok := targetCfg["env"]; ok {
 			if envSlice, isSlice := env.([]interface{}); isSlice {
-				for _, e := range envSlice {
-					target.Env = append(target.Env, e.(string))
+				for i, e := range envSlice {
+					if s, ok := e.(string); ok {
+						target.Env = append(target.Env, s)
+					} else {
+						return fmt.Errorf("invalid type for 'env[%d]' in target '%s': expected string", i, name)
+					}
 				}
+			} else {
+				return fmt.Errorf("invalid type for 'env' in target '%s': expected array", name)
 			}
 		}
 
-		// Handle build command
+		// Handle build command with safe type assertions
 		if buildCmd, ok := targetCfg["build-command"].(map[string]interface{}); ok {
 			if linux, exists := buildCmd["linux"]; exists {
-				target.BuildCommand.Linux = linux.(string)
+				if l, ok := linux.(string); ok {
+					target.BuildCommand.Linux = l
+				} else {
+					return fmt.Errorf("invalid type for 'build-command.linux' in target '%s': expected string", name)
+				}
 			}
 			if windows, exists := buildCmd["windows"]; exists {
-				target.BuildCommand.Windows = windows.(string)
+				if w, ok := windows.(string); ok {
+					target.BuildCommand.Windows = w
+				} else {
+					return fmt.Errorf("invalid type for 'build-command.windows' in target '%s': expected string", name)
+				}
 			}
 			if darwin, exists := buildCmd["darwin"]; exists {
-				target.BuildCommand.Darwin = darwin.(string)
+				if d, ok := darwin.(string); ok {
+					target.BuildCommand.Darwin = d
+				} else {
+					return fmt.Errorf("invalid type for 'build-command.darwin' in target '%s': expected string", name)
+				}
 			}
 			if binPath, exists := buildCmd["binary-path"]; exists {
-				target.BuildCommand.BinaryPathValue = binPath.(string)
+				if b, ok := binPath.(string); ok {
+					target.BuildCommand.BinaryPathValue = b
+				} else {
+					return fmt.Errorf("invalid type for 'build-command.binary-path' in target '%s': expected string", name)
+				}
 			}
 		}
 
