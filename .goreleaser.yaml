@@ -109,7 +109,7 @@ brews:
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     directory: Formula
     homepage: "https://github.com/oota-sushikuitee/nigiri"
-    description: "nigiri - A Git branch management tool"
+    description: "Manage upstream VCS repositories and build artifacts across versions"
     license: "MIT"
     commit_author:
       name: goreleaserbot
