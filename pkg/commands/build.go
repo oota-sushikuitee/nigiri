@@ -88,6 +88,16 @@ func (c *buildCommand) getCompletionTargets(prefix string) []string {
 	return getConfiguredTargets(prefix)
 }
 
+// resolveCloneDepth determines the clone depth to use. A shallow clone only
+// contains the default branch HEAD, so it cannot resolve an arbitrary commit;
+// when a commit is requested, fall back to a full clone (depth 0).
+func resolveCloneDepth(depth int, commit string) int {
+	if commit != "" {
+		return 0
+	}
+	return depth
+}
+
 // executeBuild handles the build process for the specified target.
 // It loads configuration, clones the repository at the default branch's HEAD,
 // and executes the appropriate OS-specific build command.
@@ -219,8 +229,12 @@ func (c *buildCommand) executeBuild(target string) error {
 	if c.useToken {
 		authMethod = vcsutils.AuthToken
 	}
+	cloneDepth := resolveCloneDepth(c.depth, c.commit)
+	if c.commit != "" && cloneDepth != c.depth {
+		c.cmd.Printf("Commit specified; cloning full history to resolve %s\n", c.commit)
+	}
 	cloneOptions := vcsutils.Options{
-		Depth:      c.depth,
+		Depth:      cloneDepth,
 		Verbose:    c.verbose,
 		AuthMethod: authMethod,
 	}
@@ -228,8 +242,9 @@ func (c *buildCommand) executeBuild(target string) error {
 		return logger.CreateErrorf("failed to clone repository: %w", cloneErr)
 	}
 
-	// If specific commit was requested, check it out
-	if c.commit != "" && c.depth != 1 {
+	// If a specific commit was requested, always check it out so the build
+	// never silently uses the default branch HEAD instead
+	if c.commit != "" {
 		c.cmd.Printf("Checking out commit %s...\n", c.commit)
 		if checkoutErr := git.Checkout(cloneDir, c.commit); checkoutErr != nil {
 			return logger.CreateErrorf("failed to checkout commit %s: %w", c.commit, checkoutErr)
