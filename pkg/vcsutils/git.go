@@ -74,25 +74,31 @@ func getGitHubToken() (string, error) {
 	return "", fmt.Errorf("no GitHub token found, set GITHUB_TOKEN environment variable or login with 'gh auth login'")
 }
 
+// normalizeCloneDepth maps a requested clone depth to the value passed to go-git.
+// 0 means full history (go-git treats 0 as no depth limit); negative values are
+// coerced to a full clone as well.
+func normalizeCloneDepth(depth int) int {
+	if depth < 0 {
+		return 0
+	}
+	return depth
+}
+
 // Clone clones the repository to the specified directory
 //
 // Parameters:
 //   - cloneDir: The directory to clone the repository into
-//   - opts: Additional options for cloning
+//   - opts: Additional options for cloning (Depth 0 means full history)
 //
 // Returns:
 //   - error: Any error encountered during the cloning process
 func (g *Git) Clone(cloneDir string, opts Options) error {
 	// Default options
-	depth := 1
-	verbose := false
+	depth := normalizeCloneDepth(opts.Depth)
+	verbose := opts.Verbose
 	authMethod := AuthNone
 
 	// Apply provided options
-	if opts.Depth > 0 {
-		depth = opts.Depth
-	}
-	verbose = opts.Verbose
 	if opts.AuthMethod != "" {
 		authMethod = opts.AuthMethod
 	}
@@ -321,11 +327,12 @@ func (g *Git) Checkout(repoDir string, ref string) error {
 		Branch: plumbing.NewBranchReferenceName(ref),
 	})
 	if err != nil {
-		// If not a branch, try as commit hash
-		err = w.Checkout(&git.CheckoutOptions{
-			Hash: plumbing.NewHash(ref),
-		})
-		if err != nil {
+		// If not a branch, resolve the revision (full/short commit hash or tag)
+		hash, resolveErr := r.ResolveRevision(plumbing.Revision(ref))
+		if resolveErr != nil {
+			return fmt.Errorf("failed to resolve reference '%s': %w", ref, resolveErr)
+		}
+		if err := w.Checkout(&git.CheckoutOptions{Hash: *hash}); err != nil {
 			return fmt.Errorf("failed to checkout reference '%s': %w", ref, err)
 		}
 	}
