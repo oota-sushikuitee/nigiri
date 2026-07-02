@@ -24,9 +24,9 @@ builds:
       - arm64
     ldflags:
       - -s -w
-      - -X github.com/oota-sushikuitee/nigiri/cmd.Version={{.Version}}
-      - -X github.com/oota-sushikuitee/nigiri/cmd.Commit={{.Commit}}
-      - -X github.com/oota-sushikuitee/nigiri/cmd.Date={{.Date}}
+      - -X github.com/oota-sushikuitee/nigiri/pkg/commands.Version={{.Version}}
+      - -X github.com/oota-sushikuitee/nigiri/pkg/commands.Commit={{.Commit}}
+      - -X github.com/oota-sushikuitee/nigiri/pkg/commands.BuildDate={{.Date}}
     mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:

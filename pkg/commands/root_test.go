@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -17,4 +18,14 @@ func TestExecute(t *testing.T) {
 	cmd := NewRootCommand()
 	err := cmd.Execute()
 	assert.NoError(t, err)
+}
+
+func TestExecuteVersionFlag(t *testing.T) {
+	cmd := NewRootCommand()
+	var out bytes.Buffer
+	cmd.cmd.SetOut(&out)
+	cmd.cmd.SetArgs([]string{"--version"})
+	err := cmd.Execute()
+	assert.NoError(t, err)
+	assert.Contains(t, out.String(), Version)
 }
