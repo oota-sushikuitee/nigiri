@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/oota-sushikuitee/nigiri/internal/dirutils"
 	"github.com/oota-sushikuitee/nigiri/pkg/commits"
@@ -19,6 +20,33 @@ type Target struct {
 	Commits commits.Commits
 }
 
+// ValidateTargetName checks that a user-supplied target name is safe to use
+// as a directory name directly under the nigiri root. A target name must be a
+// single local path element: names containing path separators, "..", ".", or
+// an empty string are rejected so that a crafted name cannot resolve to a
+// path outside the nigiri root (e.g. "nigiri remove ../<dir>").
+//
+// Parameters:
+//   - name: The target name to validate
+//
+// Returns:
+//   - error: An error describing why the name is invalid, or nil if it is valid
+func ValidateTargetName(name string) error {
+	if name == "" {
+		return fmt.Errorf("target name must not be empty")
+	}
+	if name == "." || name == ".." {
+		return fmt.Errorf("invalid target name %q: must be a single local path element", name)
+	}
+	if strings.ContainsAny(name, `/\`) {
+		return fmt.Errorf("invalid target name %q: must not contain path separators", name)
+	}
+	if !filepath.IsLocal(name) {
+		return fmt.Errorf("invalid target name %q: must be a single local path element", name)
+	}
+	return nil
+}
+
 // GetTargetRootDir returns the root directory for the specified target
 //
 // Parameters:
@@ -28,6 +56,9 @@ type Target struct {
 //   - string: The target root directory path
 //   - error: Any error encountered during the process
 func (t *Target) GetTargetRootDir(nigiriRoot string) (string, error) {
+	if err := ValidateTargetName(t.Target); err != nil {
+		return "", err
+	}
 	fp := filepath.Join(nigiriRoot, t.Target)
 	if !dirutils.Exists(fp) {
 		return "", fmt.Errorf("target root does not exist: %s", fp)
@@ -44,6 +75,9 @@ func (t *Target) GetTargetRootDir(nigiriRoot string) (string, error) {
 //   - string: The created target root directory path
 //   - error: Any error encountered during the process
 func (t *Target) CreateTargetRootDir(nigiriRoot string) (string, error) {
+	if err := ValidateTargetName(t.Target); err != nil {
+		return "", err
+	}
 	fp := filepath.Join(nigiriRoot, t.Target)
 	if dirutils.Exists(fp) {
 		return "", fmt.Errorf("target root already exists: %s", fp)
@@ -63,6 +97,9 @@ func (t *Target) CreateTargetRootDir(nigiriRoot string) (string, error) {
 //   - string: The created or existing target root directory path
 //   - error: Any error encountered during the process
 func (t *Target) CreateTargetRootDirIfNotExist(nigiriRoot string) (string, error) {
+	if err := ValidateTargetName(t.Target); err != nil {
+		return "", err
+	}
 	fp := filepath.Join(nigiriRoot, t.Target)
 	if !dirutils.Exists(fp) {
 		if err := os.MkdirAll(fp, 0755); err != nil {

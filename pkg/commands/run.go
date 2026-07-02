@@ -129,7 +129,9 @@ Examples:
 			if len(args) == 1 {
 				// Add HEAD to the list of completions
 				completions := c.getCompletionCommits(args[0], toComplete)
-				if strings.HasPrefix(strings.ToUpper(toComplete), "HEAD") {
+				// Offer "HEAD" when the user-typed prefix is a prefix of it.
+				//nolint:gocritic // arg order is intentional: match a typed prefix against "HEAD"
+				if strings.HasPrefix("HEAD", strings.ToUpper(toComplete)) {
 					completions = append([]string{"HEAD"}, completions...)
 				}
 				return completions, cobra.ShellCompDirectiveNoFileComp
