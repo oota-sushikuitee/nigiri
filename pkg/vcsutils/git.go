@@ -2,17 +2,16 @@ package vcsutils
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"strings"
-	"time"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/transport"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 )
 
@@ -110,8 +109,11 @@ func (g *Git) Clone(cloneDir string, opts Options) error {
 		Depth:             depth,
 	}
 
-	// Handle authentication
-	if authMethod == AuthToken || (authMethod == AuthNone && isGitHubURL(g.Source) && isPrivateRepo(g.Source)) {
+	// For explicit token authentication, attach credentials up front.
+	// Anonymous clones (AuthNone) are attempted without credentials first and
+	// only retried with a token if the server requires authentication; this
+	// keeps token-less clones of public repositories working.
+	if authMethod == AuthToken {
 		token := opts.Token
 		if token == "" {
 			var err error
@@ -141,6 +143,22 @@ func (g *Git) Clone(cloneDir string, opts Options) error {
 
 	// Perform clone
 	r, err := git.PlainClone(cloneDir, false, cloneOpts)
+
+	// If an anonymous clone failed because the server requires authentication,
+	// retry with a token when one is available (e.g. private repositories).
+	if err != nil && authMethod == AuthNone && cloneOpts.Auth == nil && isAuthRequiredError(err) {
+		if token, tokenErr := getGitHubToken(); tokenErr == nil {
+			cloneOpts.Auth = &githttp.BasicAuth{
+				Username: "x-access-token",
+				Password: token,
+			}
+			// A failed clone may leave a partially initialized directory;
+			// clear it so the retry starts from a clean state.
+			_ = os.RemoveAll(cloneDir)
+			r, err = git.PlainClone(cloneDir, false, cloneOpts)
+		}
+	}
+
 	if err != nil {
 		// Handle specific errors more gracefully
 		if strings.Contains(err.Error(), "already exists") {
@@ -158,85 +176,21 @@ func (g *Git) Clone(cloneDir string, opts Options) error {
 	return nil
 }
 
-// isGitHubURL checks if the URL is a GitHub URL
-func isGitHubURL(repoURL string) bool {
-	return strings.Contains(repoURL, "github.com")
-}
-
-// isPrivateRepo attempts to determine if a repository is private
-// This is a heuristic and may not be 100% accurate
-func isPrivateRepo(repoURL string) bool {
-	// Try to parse the URL
-	parsedURL, err := url.Parse(repoURL)
-	if err != nil {
-		return true // Assume private if we can't parse the URL
+// isAuthRequiredError reports whether err indicates that the remote requires
+// authentication (or that the provided credentials were rejected). It is used
+// to decide whether an anonymous operation should be retried with a token.
+func isAuthRequiredError(err error) bool {
+	if err == nil {
+		return false
 	}
-
-	// Check if it's using SSH protocol (typically used for private repos)
-	if parsedURL.Scheme == "git" || strings.HasPrefix(repoURL, "git@") {
+	if errors.Is(err, transport.ErrAuthenticationRequired) ||
+		errors.Is(err, transport.ErrAuthorizationFailed) {
 		return true
 	}
-
-	// For GitHub repositories, try to make an unauthenticated HTTP request
-	// If the repo is public, we'll get a 200 OK response
-	// If it's private, we'll get a 404 Not Found or 401 Unauthorized
-	if isGitHubURL(repoURL) {
-		// Convert GitHub URL to API URL format
-		apiURL := convertToGitHubAPIURL(repoURL)
-		if apiURL != "" {
-			client := http.Client{
-				Timeout: 5 * time.Second,
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
-			if err != nil {
-				return true
-			}
-
-			resp, err := client.Do(req)
-			if err == nil {
-				defer resp.Body.Close()
-				// If we get a successful response, the repo is public
-				return resp.StatusCode != 200
-			}
-			// If there was an error making the request, assume it's private
-			return true
-		}
-	}
-
-	// Default to public for HTTP URLs that aren't GitHub or if we couldn't determine
-	return false
-}
-
-// convertToGitHubAPIURL converts a GitHub repo URL to its API endpoint URL
-func convertToGitHubAPIURL(repoURL string) string {
-	// Handle SSH URLs
-	if strings.HasPrefix(repoURL, "git@github.com:") {
-		parts := strings.Split(strings.TrimPrefix(repoURL, "git@github.com:"), "/")
-		if len(parts) >= 2 {
-			owner := parts[0]
-			repo := strings.TrimSuffix(parts[1], ".git")
-			return fmt.Sprintf("https://api.github.com/repos/%s/%s", owner, repo)
-		}
-		return ""
-	}
-
-	// Handle HTTPS URLs
-	if strings.Contains(repoURL, "github.com/") {
-		parts := strings.Split(repoURL, "github.com/")
-		if len(parts) == 2 {
-			pathParts := strings.Split(parts[1], "/")
-			if len(pathParts) >= 2 {
-				owner := pathParts[0]
-				repo := strings.TrimSuffix(pathParts[1], ".git")
-				return fmt.Sprintf("https://api.github.com/repos/%s/%s", owner, repo)
-			}
-		}
-	}
-
-	return ""
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "authentication required") ||
+		strings.Contains(msg, "authorization failed") ||
+		strings.Contains(msg, "authentication")
 }
 
 // GetDefaultBranchRemoteHead retrieves the HEAD commit hash of the default branch from the remote repository
@@ -257,7 +211,7 @@ func (g *Git) GetDefaultBranchRemoteHead(defaultBranch string) error {
 	refs, err := remote.List(&git.ListOptions{})
 
 	// If we failed, try with token (might be a private repo)
-	if err != nil && strings.Contains(err.Error(), "authentication") {
+	if err != nil && isAuthRequiredError(err) {
 		token, tokenErr := getGitHubToken()
 		if tokenErr == nil {
 			auth := &githttp.BasicAuth{

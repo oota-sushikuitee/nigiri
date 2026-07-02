@@ -1,6 +1,8 @@
 package vcsutils
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -8,7 +10,33 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/go-git/go-git/v5/plumbing/transport"
 )
+
+func TestIsAuthRequiredError(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil error", err: nil, want: false},
+		{name: "authentication required sentinel", err: transport.ErrAuthenticationRequired, want: true},
+		{name: "authorization failed sentinel", err: transport.ErrAuthorizationFailed, want: true},
+		{name: "wrapped authentication required", err: fmt.Errorf("clone failed: %w", transport.ErrAuthenticationRequired), want: true},
+		{name: "message contains authentication", err: errors.New("remote: authentication required"), want: true},
+		{name: "unrelated error", err: errors.New("repository not found"), want: false},
+		{name: "network error", err: errors.New("dial tcp: connection refused"), want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := isAuthRequiredError(tt.err); got != tt.want {
+				t.Errorf("isAuthRequiredError(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
 
 func TestNormalizeCloneDepth(t *testing.T) {
 	t.Parallel()
