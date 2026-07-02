@@ -24,6 +24,70 @@ func cleanupTestDir(t *testing.T, dir string) {
 	}
 }
 
+func TestValidateTargetName(t *testing.T) {
+	tests := []struct {
+		name    string
+		target  string
+		wantErr bool
+	}{
+		{name: "valid simple name", target: "nigiri", wantErr: false},
+		{name: "valid name with hyphen", target: "my-target", wantErr: false},
+		{name: "valid name with dot suffix", target: "target.v2", wantErr: false},
+		{name: "empty name", target: "", wantErr: true},
+		{name: "dot", target: ".", wantErr: true},
+		{name: "dot dot", target: "..", wantErr: true},
+		{name: "parent traversal", target: "../x", wantErr: true},
+		{name: "nested traversal", target: "a/../../b", wantErr: true},
+		{name: "subdirectory", target: "a/b", wantErr: true},
+		{name: "absolute path", target: "/etc", wantErr: true},
+		{name: "backslash separator", target: `a\b`, wantErr: true},
+		{name: "backslash traversal", target: `..\x`, wantErr: true},
+		{name: "traversal with trailing separator", target: "../", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateTargetName(tt.target)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateTargetName(%q) error = %v, wantErr %v", tt.target, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestTargetRootDirRejectsInvalidNames(t *testing.T) {
+	testDir := setupTestDir(t)
+	defer cleanupTestDir(t, testDir)
+
+	// Create a sibling directory of the nigiri root that a traversal name
+	// could resolve to
+	sibling := filepath.Join(filepath.Dir(testDir), "outside")
+	if err := os.MkdirAll(sibling, 0755); err != nil {
+		t.Fatalf("Failed to create sibling dir: %v", err)
+	}
+	defer os.RemoveAll(sibling)
+
+	traversal := "../" + filepath.Base(sibling)
+	invalidNames := []string{traversal, "..", "a/b", ""}
+
+	for _, name := range invalidNames {
+		tgt := Target{Target: name}
+		if _, err := tgt.GetTargetRootDir(testDir); err == nil {
+			t.Errorf("GetTargetRootDir(%q) should fail for invalid target name", name)
+		}
+		if _, err := tgt.CreateTargetRootDir(testDir); err == nil {
+			t.Errorf("CreateTargetRootDir(%q) should fail for invalid target name", name)
+		}
+		if _, err := tgt.CreateTargetRootDirIfNotExist(testDir); err == nil {
+			t.Errorf("CreateTargetRootDirIfNotExist(%q) should fail for invalid target name", name)
+		}
+	}
+
+	// Ensure nothing was created outside the nigiri root
+	if _, err := os.Stat(filepath.Join(testDir, "..", "b")); err == nil {
+		t.Errorf("directory was created outside the nigiri root")
+	}
+}
+
 func TestGetTargetRootDir(t *testing.T) {
 	t.Run("Target root does not exist", func(t *testing.T) {
 		tgt := Target{
