@@ -30,6 +30,8 @@ func NewRootCommand() *rootCommand {
 		Long: `nigiri is a tool for managing upstream VCS repositories and build artifacts.
 It allows you to easily build, run, and manage different versions of upstream projects.
 `,
+		// Enable the --version flag on the root command
+		Version: Version,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
