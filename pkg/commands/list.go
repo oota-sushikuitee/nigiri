@@ -9,7 +9,6 @@ import (
 
 	"github.com/oota-sushikuitee/nigiri/internal/targets"
 	"github.com/oota-sushikuitee/nigiri/pkg/commits"
-	"github.com/oota-sushikuitee/nigiri/pkg/config"
 	"github.com/spf13/cobra"
 )
 
@@ -151,7 +150,7 @@ func (c *listCommand) listTargetCommits(target string) error {
 	})
 
 	// Get configuration information
-	cm := config.NewConfigManager()
+	cm := newConfigManager()
 	if err := cm.LoadCfgFile(); err == nil {
 		if targetCfg, ok := cm.Config.Targets[target]; ok {
 			c.cmd.Printf("Target: %s\n", target)

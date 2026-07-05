@@ -11,6 +11,7 @@ type Config struct {
 	Targets  map[string]Target `mapstructure:"targets"`
 	Defaults BuildCommand      `mapstructure:"defaults"`
 	cfgDir   string
+	cfgFile  string
 }
 
 // Target represents the configuration for a specific target
@@ -71,6 +72,23 @@ func (c *Config) GetCfgDir() string {
 //   - cfgDir: The directory to set as the configuration directory
 func (c *Config) SetCfgDir(cfgDir string) {
 	c.cfgDir = cfgDir
+}
+
+// GetCfgFile returns the explicit configuration file path, if any
+//
+// Returns:
+//   - string: The configuration file path (empty when unset)
+func (c *Config) GetCfgFile() string {
+	return c.cfgFile
+}
+
+// SetCfgFile sets an explicit configuration file path. When set, it takes
+// precedence over the configuration directory during loading.
+//
+// Parameters:
+//   - cfgFile: The path to the configuration file to load
+func (c *Config) SetCfgFile(cfgFile string) {
+	c.cfgFile = cfgFile
 }
 
 // NewConfig creates a new Config instance

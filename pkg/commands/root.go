@@ -5,11 +5,37 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/oota-sushikuitee/nigiri/pkg/config"
 	"github.com/spf13/cobra"
 )
 
 // nigiriRoot is the default path for nigiri's data directory
-var nigiriRoot = filepath.Join(os.Getenv("HOME"), ".nigiri")
+var nigiriRoot = defaultNigiriRoot()
+
+// cfgFileFlag holds the value of the global --config flag. When non-empty it
+// overrides the default configuration file location.
+var cfgFileFlag string
+
+// defaultNigiriRoot resolves the nigiri data directory using the same home
+// directory resolution as the config loader, so both agree across platforms
+// (os.UserHomeDir works on Windows, where HOME is usually unset).
+func defaultNigiriRoot() string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return ".nigiri"
+	}
+	return filepath.Join(homeDir, ".nigiri")
+}
+
+// newConfigManager builds a ConfigManager, applying the global --config flag
+// as an explicit configuration file path when it is set.
+func newConfigManager() *config.ConfigManager {
+	cm := config.NewConfigManager()
+	if cfgFileFlag != "" {
+		cm.Config.SetCfgFile(cfgFileFlag)
+	}
+	return cm
+}
 
 // rootCommand represents the structure for the root command
 type rootCommand struct {
@@ -39,7 +65,7 @@ It allows you to easily build, run, and manage different versions of upstream pr
 
 	// Add global flags
 	fs := rootCmd.PersistentFlags()
-	fs.StringP("config", "c", "", "config file (default is $HOME/.nigiri/.nigiri.yml)")
+	fs.StringVarP(&cfgFileFlag, "config", "c", "", "config file (default is $HOME/.nigiri/.nigiri.yml)")
 
 	// Add subcommands
 	rootCmd.AddCommand(newInitCommand().cmd)

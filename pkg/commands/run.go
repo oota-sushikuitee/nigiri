@@ -14,7 +14,6 @@ import (
 
 	"github.com/oota-sushikuitee/nigiri/internal/targets"
 	"github.com/oota-sushikuitee/nigiri/pkg/commits"
-	"github.com/oota-sushikuitee/nigiri/pkg/config"
 	"github.com/oota-sushikuitee/nigiri/pkg/logger"
 	"github.com/spf13/cobra"
 )
@@ -234,7 +233,7 @@ func (c *runCommand) executeRun(target, commitHash string, args []string) error 
 	}
 
 	// Get configuration for working directory setting
-	cm := config.NewConfigManager()
+	cm := newConfigManager()
 	if err := cm.LoadCfgFile(); err != nil {
 		return logger.CreateErrorf("failed to load config: %w", err)
 	}

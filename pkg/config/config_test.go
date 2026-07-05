@@ -174,6 +174,50 @@ func TestConfigManager_LoadCfgFile(t *testing.T) {
 	}
 }
 
+func TestConfigManager_LoadCfgFile_ExplicitFile(t *testing.T) {
+	// Write a config file with a non-default name in a directory that is NOT
+	// registered as the config dir, to prove the explicit file path is used.
+	tempDir, err := os.MkdirTemp("", "nigiri-explicit-config-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	configContent := `
+targets:
+  explicit-target:
+    source: https://github.com/oota-sushikuitee/nigiri
+    default-branch: main
+    build-command:
+      linux: make build
+`
+	configPath := filepath.Join(tempDir, "custom-config.yml")
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	cm := NewConfigManager()
+	// Point cfgDir somewhere without a config file; the explicit file must win.
+	cm.Config.SetCfgDir(filepath.Join(tempDir, "empty"))
+	cm.Config.SetCfgFile(configPath)
+
+	if err := cm.LoadCfgFile(); err != nil {
+		t.Fatalf("LoadCfgFile() error = %v", err)
+	}
+
+	if _, exists := cm.Config.Targets["explicit-target"]; !exists {
+		t.Errorf("explicit-target not found; explicit config file was not loaded")
+	}
+}
+
+func TestConfigManager_LoadCfgFile_ExplicitFile_NonExistent(t *testing.T) {
+	cm := NewConfigManager()
+	cm.Config.SetCfgFile("/non/existent/custom-config.yml")
+	if err := cm.LoadCfgFile(); err == nil {
+		t.Error("LoadCfgFile() expected error for non-existent explicit config file")
+	}
+}
+
 func TestConfigManager_LoadCfgFile_NonExistentFile(t *testing.T) {
 	cm := NewConfigManager()
 	cm.Config.SetCfgDir("/non/existent/directory")
