@@ -367,39 +367,83 @@ func extractTarGz(tarGzPath, destDir string) error {
 			return fmt.Errorf("tar reading error: %w", err)
 		}
 
-		// Clean and validate the path
-		cleanName := filepath.Clean(header.Name)
-		if strings.Contains(cleanName, "..") {
-			return fmt.Errorf("invalid file path in archive: %s", cleanName)
+		// Resolve the target path and ensure it stays within destDir. Using
+		// filepath.Rel-based containment avoids the separator-unsafe prefix
+		// pitfall (e.g. "/root-evil" is not contained by "/root").
+		filePath := filepath.Join(destDir, filepath.Clean(header.Name))
+		if !isWithinDir(destDir, filePath) {
+			return fmt.Errorf("attempted path traversal in archive: %s", header.Name)
 		}
 
-		// Get file path
-		filePath := filepath.Join(destDir, cleanName)
-
-		// Additional validation: ensure the final path is within the destination directory
-		if !strings.HasPrefix(filepath.Clean(filePath), filepath.Clean(destDir)) {
-			return fmt.Errorf("attempted path traversal in archive: %s", cleanName)
-		}
-
-		// Create directories if needed
-		if header.Typeflag == tar.TypeDir {
+		switch header.Typeflag {
+		case tar.TypeDir:
 			if err := os.MkdirAll(filePath, 0755); err != nil {
 				return fmt.Errorf("failed to create directory: %w", err)
 			}
-			continue
-		}
-
-		// Make sure parent directory exists
-		if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
-			return fmt.Errorf("failed to create parent directory: %w", err)
-		}
-
-		// Extract file using helper function for proper resource management
-		if err := extractFileFromTar(tarReader, filePath, header.Mode); err != nil {
-			return err
+		case tar.TypeSymlink:
+			if err := extractSymlink(destDir, filePath, header.Linkname); err != nil {
+				return err
+			}
+		case tar.TypeLink:
+			// Hard link: the target is relative to the extraction root.
+			target := filepath.Join(destDir, filepath.Clean(header.Linkname))
+			if !isWithinDir(destDir, target) {
+				return fmt.Errorf("hard link target escapes extraction root: %s -> %s", header.Name, header.Linkname)
+			}
+			if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+				return fmt.Errorf("failed to create parent directory: %w", err)
+			}
+			if err := os.Link(target, filePath); err != nil {
+				return fmt.Errorf("failed to create hard link: %w", err)
+			}
+		default:
+			// Make sure parent directory exists
+			if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+				return fmt.Errorf("failed to create parent directory: %w", err)
+			}
+			// Extract file using helper function for proper resource management
+			if err := extractFileFromTar(tarReader, filePath, header.Mode); err != nil {
+				return err
+			}
 		}
 	}
 
+	return nil
+}
+
+// isWithinDir reports whether target is contained within root (or equal to it),
+// using path-component-aware comparison rather than a raw string prefix.
+func isWithinDir(root, target string) bool {
+	rel, err := filepath.Rel(filepath.Clean(root), filepath.Clean(target))
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
+}
+
+// extractSymlink writes a symlink at linkPath pointing to linkname, rejecting
+// any link whose resolved target would escape the extraction root.
+func extractSymlink(destDir, linkPath, linkname string) error {
+	var resolved string
+	if filepath.IsAbs(linkname) {
+		resolved = filepath.Clean(linkname)
+	} else {
+		resolved = filepath.Clean(filepath.Join(filepath.Dir(linkPath), linkname))
+	}
+	if !isWithinDir(destDir, resolved) {
+		return fmt.Errorf("symlink target escapes extraction root: %s -> %s", linkPath, linkname)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(linkPath), 0755); err != nil {
+		return fmt.Errorf("failed to create parent directory: %w", err)
+	}
+	// Remove any pre-existing entry so a stale target cannot be followed.
+	if err := os.Remove(linkPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to replace existing path: %w", err)
+	}
+	if err := os.Symlink(linkname, linkPath); err != nil {
+		return fmt.Errorf("failed to create symlink: %w", err)
+	}
 	return nil
 }
 

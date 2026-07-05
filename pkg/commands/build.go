@@ -503,8 +503,18 @@ func compressDirectory(srcDir, tarGzPath string) error {
 			return err
 		}
 
+		// Resolve the link target for symlinks so it is recorded in the header.
+		// filepath.Walk uses Lstat, so info describes the link itself.
+		var linkTarget string
+		if info.Mode()&os.ModeSymlink != 0 {
+			linkTarget, err = os.Readlink(path)
+			if err != nil {
+				return fmt.Errorf("failed to read symlink: %w", err)
+			}
+		}
+
 		// Create tar header
-		header, err := tar.FileInfoHeader(info, info.Name())
+		header, err := tar.FileInfoHeader(info, linkTarget)
 		if err != nil {
 			return fmt.Errorf("failed to create tar header: %w", err)
 		}
@@ -526,8 +536,10 @@ func compressDirectory(srcDir, tarGzPath string) error {
 			return fmt.Errorf("failed to write tar header: %w", err)
 		}
 
-		// Skip directories (they are only headers in tar)
-		if info.IsDir() {
+		// Only regular files carry content; directories and symlinks are
+		// represented by their header alone. Writing content for a symlink
+		// would follow the link and corrupt the archive.
+		if !info.Mode().IsRegular() {
 			return nil
 		}
 
