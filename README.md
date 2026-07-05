@@ -75,6 +75,10 @@ targets:
 
 ## Commands
 
+### Global Flags
+
+- `--config`, `-c`: path to the configuration file to use (default `~/.nigiri/.nigiri.yml`)
+
 ### Initialize
 
 Create a new nigiri configuration file:
@@ -131,6 +135,14 @@ nigiri build <target> --verbose
 nigiri build <target> -v
 ```
 
+To set a build timeout in minutes (0 disables the timeout; default is 30):
+
+```bash
+nigiri build <target> --timeout <minutes>
+```
+
+Note: `--depth` defaults to `1` (a shallow clone). Use `--depth 0` to clone the full history.
+
 ### Run
 
 Run a built target:
@@ -183,15 +195,44 @@ Remove a built target:
 nigiri remove <target> [commit]
 ```
 
-If the commit is not specified, all builds of the target will be removed.
+If a commit is specified, only that commit's build is removed. If no commit is
+specified, the entire target and all its builds are removed.
+
+Remove every target and all their builds:
+
+```bash
+nigiri remove --all
+```
 
 ### Cleanup
 
-Remove all builds:
+Run with no arguments to show the current disk usage of builds per target (this
+does not remove anything):
 
 ```bash
 nigiri cleanup
 ```
+
+Clean up old builds for a specific target, keeping the most recent builds
+according to the retention limits:
+
+```bash
+nigiri cleanup <target>
+```
+
+Clean up old builds across all targets:
+
+```bash
+nigiri cleanup --all
+```
+
+Retention and behavior are controlled by flags:
+
+- `--max-age`, `-a`: maximum age of builds to keep, in days (default `30`; `0` disables)
+- `--max-builds`, `-b`: maximum number of builds to keep per target (default `5`; `0` disables)
+- `--dry-run`, `-d`: show what would be removed without removing anything
+- `--all`, `-A`: apply to all targets
+- `--yes`, `-y`: skip the confirmation prompt
 
 ## Advanced Features
 
@@ -203,9 +244,9 @@ For private repositories, you need to provide authentication. Nigiri supports Gi
 nigiri build <target> --use-token
 ```
 
-The token is automatically sourced from:
-1. GitHub CLI (`gh auth token`)
-2. GITHUB_TOKEN environment variable
+The token is automatically sourced from, in order:
+1. `GITHUB_TOKEN` environment variable
+2. GitHub CLI (`gh auth token`)
 
 ### Working Directory
 
