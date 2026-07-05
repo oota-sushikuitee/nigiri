@@ -6,7 +6,6 @@ import (
 
 	"github.com/oota-sushikuitee/nigiri/internal/targets"
 	"github.com/oota-sushikuitee/nigiri/pkg/commits"
-	"github.com/oota-sushikuitee/nigiri/pkg/config"
 )
 
 // getConfiguredTargets returns a list of target names from the configuration file
@@ -18,7 +17,7 @@ import (
 // Returns:
 //   - []string: A list of matching target names
 func getConfiguredTargets(prefix string) []string {
-	cm := config.NewConfigManager()
+	cm := newConfigManager()
 	if err := cm.LoadCfgFile(); err != nil {
 		return nil
 	}

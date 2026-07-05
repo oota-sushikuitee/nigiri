@@ -29,22 +29,29 @@ func NewConfigManager() *ConfigManager {
 	}
 }
 
-// LoadCfgFile loads the configuration file from the configuration directory
+// LoadCfgFile loads the configuration file. When an explicit config file path
+// has been set (e.g. via the --config flag), that file is loaded directly;
+// otherwise the file is discovered in the configuration directory.
 func (cm *ConfigManager) LoadCfgFile() error {
-	cfgDir := cm.Config.GetCfgDir()
-	if cfgDir == "" {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return fmt.Errorf("could not determine home directory: %w", err)
-		}
-		cfgDir = filepath.Join(homeDir, ".nigiri")
-		cm.Config.SetCfgDir(cfgDir)
-	}
-
 	v := viper.New()
-	v.SetConfigName(".nigiri")
-	v.SetConfigType("yaml")
-	v.AddConfigPath(cfgDir)
+
+	if cfgFile := cm.Config.GetCfgFile(); cfgFile != "" {
+		v.SetConfigFile(cfgFile)
+	} else {
+		cfgDir := cm.Config.GetCfgDir()
+		if cfgDir == "" {
+			homeDir, err := os.UserHomeDir()
+			if err != nil {
+				return fmt.Errorf("could not determine home directory: %w", err)
+			}
+			cfgDir = filepath.Join(homeDir, ".nigiri")
+			cm.Config.SetCfgDir(cfgDir)
+		}
+
+		v.SetConfigName(".nigiri")
+		v.SetConfigType("yaml")
+		v.AddConfigPath(cfgDir)
+	}
 
 	if err := v.ReadInConfig(); err != nil {
 		return fmt.Errorf("failed to read config file: %w", err)

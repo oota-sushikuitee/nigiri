@@ -14,7 +14,6 @@ import (
 
 	"github.com/oota-sushikuitee/nigiri/internal/targets"
 	"github.com/oota-sushikuitee/nigiri/pkg/commits"
-	"github.com/oota-sushikuitee/nigiri/pkg/config"
 	"github.com/oota-sushikuitee/nigiri/pkg/logger"
 	"github.com/oota-sushikuitee/nigiri/pkg/vcsutils"
 	"github.com/spf13/cobra"
@@ -109,7 +108,7 @@ func resolveCloneDepth(depth int, commit string) int {
 //   - error: Any error encountered during the build process
 func (c *buildCommand) executeBuild(target string) error {
 	// Load configuration
-	cm := config.NewConfigManager()
+	cm := newConfigManager()
 	err := cm.LoadCfgFile()
 	if err != nil {
 		return logger.CreateErrorf("failed to load configuration: %w", err)
