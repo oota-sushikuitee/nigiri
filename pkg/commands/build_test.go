@@ -1,9 +1,12 @@
 package commands
 
 import (
+	"io"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewBuildCommand(t *testing.T) {
@@ -16,6 +19,22 @@ func TestExecuteBuild(t *testing.T) {
 	cmd := newBuildCommand()
 	err := cmd.executeBuild("nigiri")
 	assert.Error(t, err) // Expecting error due to missing config and other dependencies
+}
+
+// TestExecuteBuild_RemovesCommitDirOnFailure checks that a failed build leaves
+// no commit directory behind, so the next build is not skipped as already built.
+func TestExecuteBuild_RemovesCommitDirOnFailure(t *testing.T) {
+	root := t.TempDir()
+	cfgPath := writeTestConfig(t, root, filepath.Join(root, "missing-repo"))
+	restoreCommandGlobals(t, filepath.Join(root, "nigiri"), cfgPath)
+
+	cmd := newBuildCommand()
+	cmd.cmd.SetOut(io.Discard)
+	cmd.commit = "abcdef1234567890abcdef1234567890abcdef12"
+
+	err := cmd.executeBuild("sample")
+	require.Error(t, err)
+	assert.NoDirExists(t, filepath.Join(nigiriRoot, "sample", "abcdef1"))
 }
 
 func TestResolveCloneDepth(t *testing.T) {

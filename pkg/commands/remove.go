@@ -177,7 +177,7 @@ func (c *removeCommand) executeRemoveCommit(target, commitHash string) error {
 
 	var matchingDirs []string
 	for _, dir := range dirs {
-		if dir.IsDir() && strings.HasPrefix(dir.Name(), commitHash) {
+		if dir.IsDir() && commitDirMatches(dir.Name(), commitHash) {
 			matchingDirs = append(matchingDirs, dir.Name())
 		}
 	}

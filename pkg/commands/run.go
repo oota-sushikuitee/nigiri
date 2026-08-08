@@ -219,7 +219,7 @@ func (c *runCommand) executeRun(target, commitHash string, args []string) error 
 
 		var matchingDir string
 		for _, dir := range dirs {
-			if dir.IsDir() && strings.HasPrefix(dir.Name(), commitHash) {
+			if dir.IsDir() && commitDirMatches(dir.Name(), commitHash) {
 				matchingDir = dir.Name()
 				break
 			}
@@ -325,6 +325,24 @@ func (c *runCommand) executeRun(target, commitHash string, args []string) error 
 
 	c.cmd.Printf("Running %s with args: %v\n", binaryPath, args)
 	return cmd.Run()
+}
+
+// commitDirMatches reports whether the stored build directory dirName refers to
+// the commit the user asked for. Build directories are named after the 7-char
+// short hash, so a query can be either a prefix of that name or a longer hash
+// (typically the full 40-char one) that the name is a prefix of.
+//
+// Parameters:
+//   - dirName: The name of a build directory under the target root
+//   - commitHash: The commit hash supplied by the user
+//
+// Returns:
+//   - bool: True if the directory holds the build for the queried commit
+func commitDirMatches(dirName, commitHash string) bool {
+	if dirName == "" || commitHash == "" {
+		return false
+	}
+	return strings.HasPrefix(dirName, commitHash) || strings.HasPrefix(commitHash, dirName)
 }
 
 // maxFileSizeForExtract is the maximum file size allowed when extracting archives (1GB)
