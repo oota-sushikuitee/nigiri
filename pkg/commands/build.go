@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -198,6 +199,20 @@ func (c *buildCommand) executeBuild(target string) error {
 		}
 	}
 
+	// A commit directory created for a build that then fails must not survive:
+	// the next build would see it and report the commit as already built.
+	buildSucceeded := false
+	if !isExistCommitDir {
+		defer func() {
+			if buildSucceeded {
+				return
+			}
+			if rmErr := os.RemoveAll(commitDir); rmErr != nil {
+				logger.Warnf("Failed to remove commit directory %s after failed build: %v", commitDir, rmErr)
+			}
+		}()
+	}
+
 	// Record current working directory
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -313,22 +328,20 @@ func (c *buildCommand) executeBuild(target string) error {
 		ctx = context.Background()
 	}
 
-	execCmd := exec.CommandContext(ctx, "/bin/sh", "-c", cmd)
-	execCmd.Stdout = buildLogFile
-	execCmd.Stderr = buildLogFile
-
+	var stdout io.Writer = buildLogFile
+	var stderr io.Writer = buildLogFile
 	if c.verbose {
 		// If verbose, show output in terminal too
-		execCmd.Stdout = io.MultiWriter(os.Stdout, buildLogFile)
-		execCmd.Stderr = io.MultiWriter(os.Stderr, buildLogFile)
+		stdout = io.MultiWriter(os.Stdout, buildLogFile)
+		stderr = io.MultiWriter(os.Stderr, buildLogFile)
 	}
 
-	// Set environment variables if specified
+	var env []string
 	if len(targetCfg.Env) > 0 {
-		execCmd.Env = append(os.Environ(), targetCfg.Env...)
+		env = append(os.Environ(), targetCfg.Env...)
 	}
 
-	buildErr := execCmd.Run()
+	buildErr := runBuildCommand(ctx, cmd, stdout, stderr, env, buildWaitDelay)
 
 	// Check if the build was killed due to timeout
 	if ctx.Err() == context.DeadlineExceeded {
@@ -416,9 +429,48 @@ func (c *buildCommand) executeBuild(target string) error {
 		return logger.CreateErrorf("build failed: %w\nSee build log at %s", buildErr, buildLogPath)
 	}
 
+	buildSucceeded = true
 	c.cmd.Printf("Target '%s' built at commit %s\n", target, headCommit.ShortHash)
 	c.cmd.Printf("Run with: nigiri run %s %s\n", target, headCommit.ShortHash)
 	return nil
+}
+
+// buildWaitDelay bounds how long Wait blocks after the build shell has exited
+// or the build context has been cancelled. Without it, grandchildren that
+// inherited the output pipes keep the build hanging indefinitely.
+const buildWaitDelay = 5 * time.Second
+
+// runBuildCommand runs the build command in a shell under ctx. The shell is
+// placed in its own process group so cancellation reaches the whole build
+// process tree instead of only the shell, and waitDelay bounds the wait for
+// output pipes that orphaned descendants may still hold open.
+//
+// Parameters:
+//   - ctx: The context bounding the build (carries the --timeout deadline)
+//   - command: The shell command to run
+//   - stdout: Writer receiving the command's standard output
+//   - stderr: Writer receiving the command's standard error
+//   - env: The environment for the command (nil inherits the current one)
+//   - waitDelay: The grace period before abandoning blocked output pipes
+//
+// Returns:
+//   - error: Any error encountered while running the build command
+func runBuildCommand(ctx context.Context, command string, stdout, stderr io.Writer, env []string, waitDelay time.Duration) error {
+	execCmd := exec.CommandContext(ctx, "/bin/sh", "-c", command)
+	execCmd.Stdout = stdout
+	execCmd.Stderr = stderr
+	execCmd.Env = env
+	configureBuildProcess(execCmd, waitDelay)
+
+	err := execCmd.Run()
+	// A wait-delay expiry on an otherwise clean run means the build command
+	// itself succeeded and only orphaned descendants still held the output
+	// pipes open, which is not a build failure.
+	if errors.Is(err, exec.ErrWaitDelay) && ctx.Err() == nil {
+		logger.Warnf("Build command left background processes holding its output; continued after %s", waitDelay)
+		return nil
+	}
+	return err
 }
 
 // copyFile copies a file from src to dst
