@@ -133,16 +133,16 @@ func TestGetTargetHeadDir(t *testing.T) {
 			Commits: commits.Commits{
 				Commits: []commits.Commit{
 					{
-						Hash:      "commit1",
-						ShortHash: "commit1",
+						Hash:      "1234567890abcdef1234567890abcdef12345678",
+						ShortHash: "1234567",
 					},
 					{
-						Hash:      "commit2",
-						ShortHash: "commit2",
+						Hash:      "abcdef1234567890abcdef1234567890abcdef12",
+						ShortHash: "abcdef1",
 					},
 				},
 			}}
-		testDir := filepath.Join(tmpNigiriRoot, "test", "commit2")
+		testDir := filepath.Join(tmpNigiriRoot, "test", "abcdef1")
 		os.MkdirAll(testDir, 0755)
 		defer os.RemoveAll(filepath.Join(tmpNigiriRoot, "test"))
 
