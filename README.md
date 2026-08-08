@@ -103,6 +103,8 @@ Build a target at a specific commit:
 nigiri build <target> [commit]
 ```
 
+The commit must be a hexadecimal commit hash of 7 to 40 characters; branch and tag names are not accepted.
+
 To build a target with GitHub token authentication (for private repositories):
 
 ```bash
