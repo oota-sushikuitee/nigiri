@@ -31,5 +31,5 @@ kind/documentation:
 kind/feature:
   - head-branch: ["^feat", "feat"]
 
-kind:refactor:
+kind/refactor:
   - head-branch: ["^refactor", "refactor"]
