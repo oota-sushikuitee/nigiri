@@ -50,6 +50,13 @@
       "pinDigests": true
     },
     {
+      "description": "The golangci-lint-action 'version' input holds a plain version, not a digest, so a digest pin cannot be written",
+      "matchPackageNames": [
+        "golangci/golangci-lint"
+      ],
+      "pinDigests": false
+    },
+    {
       "description": "Major updates - require manual review",
       "matchUpdateTypes": [
         "major"
