@@ -16,10 +16,15 @@ func TestNewRunCommand(t *testing.T) {
 	assert.NotNil(t, cmd.cmd)
 }
 
-func TestExecuteRun(t *testing.T) {
+func TestExecuteRun_TargetNotBuilt(t *testing.T) {
+	testRoot(t)
+
 	cmd := newRunCommand()
-	err := cmd.executeRun("nigiri", "", nil)
-	assert.Error(t, err) // Expecting error due to missing config and other dependencies
+	cmd.cmd.SetOut(io.Discard)
+
+	err := cmd.executeRun("sample", "", nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "target root does not exist")
 }
 
 func TestParseRunArgs(t *testing.T) {
