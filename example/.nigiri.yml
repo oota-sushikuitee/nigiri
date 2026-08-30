@@ -21,7 +21,6 @@ targets:
       windows: make
       darwin: make
 defaults:
-  build-command:
-    linux: make build
-    windows: make build
-    darwin: make build
+  linux: make build
+  windows: make build
+  darwin: make build

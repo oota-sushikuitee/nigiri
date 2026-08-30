@@ -108,7 +108,7 @@ defaults:
 
 	c.cmd.Printf("Configuration file created at %s\n", configFilePath)
 	c.cmd.Println("Edit this file to add your own targets.")
-	c.cmd.Println("Run 'nigiri list' to see your configured targets.")
+	c.cmd.Println("Run 'nigiri build <target>' to build one, then 'nigiri list' to see your builds.")
 
 	return nil
 }
