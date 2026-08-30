@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/oota-sushikuitee/nigiri/internal/targets"
 	"github.com/oota-sushikuitee/nigiri/pkg/commits"
@@ -57,66 +59,27 @@ Examples:
 `,
 		DisableFlagParsing: true, // Let us handle the flags manually
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) < 1 {
+			inv, err := parseRunArgs(args)
+			if err != nil {
+				return err
+			}
+			if inv.help || inv.target == "" {
 				return cmd.Help()
 			}
-
-			target := args[0]
-			var commitHash string
-			var targetArgs []string
-
-			// Parse arguments to separate commit and target args
-			if len(args) > 1 {
-				// Look for "--" in args to find target arguments explicitly
-				dashIndex := -1
-				for i, arg := range args {
-					if arg == "--" {
-						dashIndex = i
-						break
-					}
-				}
-
-				if dashIndex != -1 {
-					// "--" was found for explicit separation
-					if dashIndex > 1 {
-						// There is a commit hash between target and "--"
-						commitHash = args[1]
-					}
-					if dashIndex < len(args)-1 {
-						// There are args after "--"
-						targetArgs = args[dashIndex+1:]
-					}
-				} else {
-					// "--" not found, but we still need to handle arguments
-					// Second argument could be a commit hash or a flag
-					secondArg := args[1]
-
-					// If the second argument starts with "-", it's a flag/option for the target
-					// Or if it's HEAD/head, treat it as a commit hash
-					if strings.HasPrefix(secondArg, "-") {
-						// It's a flag, so no commit hash specified
-						commitHash = ""       // Use latest commit
-						targetArgs = args[1:] // All args after target are for the target program
-					} else {
-						// Not a flag, so it's a commit hash (or HEAD)
-						commitHash = secondArg
-
-						// If there are more arguments, they are passed to the target
-						if len(args) > 2 {
-							targetArgs = args[2:]
-						}
-					}
-				}
+			// Flag parsing is disabled for this command, so the global --config
+			// flag has to be applied by hand.
+			if inv.configFile != "" {
+				cfgFileFlag = inv.configFile
 			}
 
 			// Handle HEAD/head alias for the latest commit
-			if strings.ToUpper(commitHash) == "HEAD" {
+			if strings.EqualFold(inv.commitHash, "HEAD") {
 				// HEAD alias is specified, so set empty string to use the latest commit
-				commitHash = ""
+				inv.commitHash = ""
 				cmd.Printf("Using HEAD (latest commit)\n")
 			}
 
-			return c.executeRun(target, commitHash, targetArgs)
+			return c.executeRun(inv.target, inv.commitHash, inv.targetArgs)
 		},
 		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 			// Offer tab completion for targets if no arguments provided yet
@@ -142,6 +105,92 @@ Examples:
 
 	c.cmd = cmd
 	return c
+}
+
+// runInvocation is the result of parsing a raw `nigiri run` argument list.
+type runInvocation struct {
+	// target is the built target to run
+	target string
+	// commitHash is the requested commit, empty for the latest build
+	commitHash string
+	// configFile is the path given to the global --config flag, if any
+	configFile string
+	// targetArgs are the arguments passed through to the target program
+	targetArgs []string
+	// help reports whether nigiri's own help was requested
+	help bool
+}
+
+// parseRunArgs splits a raw `nigiri run` argument list into nigiri's own
+// arguments and the target's. Flag parsing is disabled for this command so that
+// target flags pass through untouched, which means nigiri's global flags have to
+// be recognised here; they are only accepted before the target name, so anything
+// after it still belongs to the target. Everything that is neither the target
+// nor a commit hash is forwarded, including arguments preceding a "--".
+//
+// Parameters:
+//   - args: The raw argument list as received from cobra
+//
+// Returns:
+//   - runInvocation: The parsed invocation
+//   - error: An error when a nigiri flag is missing its value
+func parseRunArgs(args []string) (runInvocation, error) {
+	var inv runInvocation
+
+	// Arguments after the first "--" always belong to the target.
+	before := args
+	var afterDash []string
+	for i, arg := range args {
+		if arg == "--" {
+			before, afterDash = args[:i], args[i+1:]
+			break
+		}
+	}
+
+	i := 0
+consume:
+	for i < len(before) {
+		arg := before[i]
+		switch {
+		case arg == "--help" || arg == "-h":
+			inv.help = true
+			i++
+		case arg == "--config" || arg == "-c":
+			if i+1 >= len(before) {
+				return inv, logger.CreateErrorf("flag needs an argument: %s", arg)
+			}
+			inv.configFile = before[i+1]
+			i += 2
+		case strings.HasPrefix(arg, "--config="):
+			inv.configFile = strings.TrimPrefix(arg, "--config=")
+			i++
+		case strings.HasPrefix(arg, "-c="):
+			inv.configFile = strings.TrimPrefix(arg, "-c=")
+			i++
+		default:
+			// The first argument that is none of nigiri's own flags is the
+			// target name; everything from there on is positional.
+			break consume
+		}
+	}
+
+	rest := before[i:]
+	if len(rest) > 0 {
+		inv.target = rest[0]
+		rest = rest[1:]
+	}
+	// A commit hash is a positional argument; a flag right after the target is
+	// already an argument for the target program.
+	if len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
+		inv.commitHash = rest[0]
+		rest = rest[1:]
+	}
+
+	inv.targetArgs = append(append([]string{}, rest...), afterDash...)
+	if len(inv.targetArgs) == 0 {
+		inv.targetArgs = nil
+	}
+	return inv, nil
 }
 
 // getCompletionTargets returns a list of available targets for command completion
@@ -185,15 +234,17 @@ func (c *runCommand) executeRun(target, commitHash string, args []string) error 
 		}
 
 		var latestDir string
-		var latestInfo os.FileInfo
+		var latestBuilt time.Time
 		for _, dir := range dirs {
 			if dir.IsDir() {
-				info, err := os.Stat(filepath.Join(targetRootDir, dir.Name()))
+				commitDir := filepath.Join(targetRootDir, dir.Name())
+				info, err := os.Stat(commitDir)
 				if err != nil {
 					continue
 				}
-				if latestInfo == nil || info.ModTime().After(latestInfo.ModTime()) {
-					latestInfo = info
+				built := buildTime(commitDir, info.ModTime())
+				if latestDir == "" || built.After(latestBuilt) {
+					latestBuilt = built
 					latestDir = dir.Name()
 				}
 			}
@@ -237,7 +288,7 @@ func (c *runCommand) executeRun(target, commitHash string, args []string) error 
 	if err := cm.LoadCfgFile(); err != nil {
 		return logger.CreateErrorf("failed to load config: %w", err)
 	}
-	targetCfg, exists := cm.Config.Targets[target]
+	targetCfg, exists := cm.Config.GetTarget(target)
 	if !exists {
 		return logger.CreateErrorf("target '%s' not found in configuration", target)
 	}
@@ -251,11 +302,22 @@ func (c *runCommand) executeRun(target, commitHash string, args []string) error 
 		srcArchive := filepath.Join(runDir, "source.tar.gz")
 		srcDir := filepath.Join(runDir, "src")
 
-		// If source archive exists but src directory doesn't, extract it
+		// If source archive exists but src directory doesn't, extract it.
+		// Archive entries are stored relative to the source tree root, so the
+		// archive must be extracted into src rather than into the commit
+		// directory, where it would scatter the repository over the build
+		// artifacts.
 		if _, err := os.Stat(srcArchive); err == nil {
 			if _, err := os.Stat(srcDir); os.IsNotExist(err) {
 				c.cmd.Printf("Extracting source archive...\n")
-				if err := extractTarGz(srcArchive, runDir); err != nil {
+				if err := os.MkdirAll(srcDir, 0755); err != nil {
+					return logger.CreateErrorf("failed to create source directory: %w", err)
+				}
+				if err := extractTarGz(srcArchive, srcDir); err != nil {
+					// A half-extracted tree would make the next run skip extraction.
+					if rmErr := os.RemoveAll(srcDir); rmErr != nil {
+						logger.Warnf("Failed to remove incomplete source directory %s: %v", srcDir, rmErr)
+					}
 					return logger.CreateErrorf("failed to extract source archive: %w", err)
 				}
 			}
@@ -324,7 +386,16 @@ func (c *runCommand) executeRun(target, commitHash string, args []string) error 
 	}
 
 	c.cmd.Printf("Running %s with args: %v\n", binaryPath, args)
-	return cmd.Run()
+	if err := cmd.Run(); err != nil {
+		// The target ran and failed on its own terms: report its status so the
+		// caller can distinguish it from nigiri failing to start the target.
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() > 0 {
+			return &ExitCodeError{Code: exitErr.ExitCode()}
+		}
+		return err
+	}
+	return nil
 }
 
 // commitDirMatches reports whether the stored build directory dirName refers to
@@ -420,7 +491,7 @@ func extractTarGz(tarGzPath, destDir string) error {
 				return fmt.Errorf("failed to create parent directory: %w", err)
 			}
 			// Extract file using helper function for proper resource management
-			if err := extractFileFromTar(tarReader, filePath, header.Mode); err != nil {
+			if err := extractFileFromTar(tarReader, filePath, header.Mode, header.Size); err != nil {
 				return err
 			}
 		}
@@ -465,9 +536,23 @@ func extractSymlink(destDir, linkPath, linkname string) error {
 	return nil
 }
 
-// extractFileFromTar extracts a single file from the tar reader with proper resource cleanup
-// and size limits to prevent resource exhaustion
-func extractFileFromTar(tarReader *tar.Reader, filePath string, mode int64) error {
+// extractFileFromTar extracts a single file from the tar reader with proper
+// resource cleanup. Entries above the size limit are rejected rather than
+// written truncated, since the result would be reported as a valid extraction.
+//
+// Parameters:
+//   - tarReader: The archive positioned at the entry to extract
+//   - filePath: The destination path
+//   - mode: The file mode recorded in the tar header
+//   - size: The entry size recorded in the tar header
+//
+// Returns:
+//   - error: Any error encountered while extracting the entry
+func extractFileFromTar(tarReader *tar.Reader, filePath string, mode, size int64) error {
+	if size > maxFileSizeForExtract {
+		return fmt.Errorf("archive entry %s exceeds the %d byte extraction size limit", filePath, int64(maxFileSizeForExtract))
+	}
+
 	file, err := os.Create(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to create file: %w", err)
@@ -478,10 +563,12 @@ func extractFileFromTar(tarReader *tar.Reader, filePath string, mode int64) erro
 		}
 	}()
 
-	// Use LimitReader to prevent extracting extremely large files
-	limitedReader := io.LimitReader(tarReader, maxFileSizeForExtract)
-	if _, err := io.Copy(file, limitedReader); err != nil {
+	written, err := io.Copy(file, tarReader)
+	if err != nil {
 		return fmt.Errorf("failed to write file: %w", err)
+	}
+	if written != size {
+		return fmt.Errorf("archive entry %s is truncated: wrote %d of %d bytes", filePath, written, size)
 	}
 
 	// Set file permissions

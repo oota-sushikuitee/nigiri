@@ -139,7 +139,7 @@ func (c *listCommand) listTargetCommits(target string) error {
 			}
 			commits = append(commits, commitInfo{
 				hash:    entry.Name(),
-				modTime: info.ModTime(),
+				modTime: buildTime(commitDir, info.ModTime()),
 			})
 		}
 	}
@@ -152,7 +152,7 @@ func (c *listCommand) listTargetCommits(target string) error {
 	// Get configuration information
 	cm := newConfigManager()
 	if err := cm.LoadCfgFile(); err == nil {
-		if targetCfg, ok := cm.Config.Targets[target]; ok {
+		if targetCfg, ok := cm.Config.GetTarget(target); ok {
 			c.cmd.Printf("Target: %s\n", target)
 			c.cmd.Printf("Source: %s\n", targetCfg.Sources)
 			c.cmd.Printf("Default branch: %s\n", targetCfg.DefaultBranch)

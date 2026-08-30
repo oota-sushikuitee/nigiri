@@ -23,6 +23,13 @@ func pipedWriter() io.Writer {
 	return io.MultiWriter(io.Discard)
 }
 
+func TestBuildShell(t *testing.T) {
+	t.Parallel()
+	shell, args := buildShell()
+	assert.Equal(t, "/bin/sh", shell)
+	assert.Equal(t, []string{"-c"}, args)
+}
+
 func TestRunBuildCommand_Success(t *testing.T) {
 	err := runBuildCommand(context.Background(), "exit 0", pipedWriter(), pipedWriter(), nil, time.Second)
 	assert.NoError(t, err)
