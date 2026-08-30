@@ -1,6 +1,8 @@
 // Package config defines the configuration models for the nigiri CLI
 package config
 
+import "strings"
+
 // Config represents the configuration for the nigiri CLI
 //
 // Fields:
@@ -56,6 +58,30 @@ func (bc BuildCommand) BinaryPath() (string, bool) {
 		return "", false
 	}
 	return bc.BinaryPathValue, true
+}
+
+// GetTarget looks up a target by name. The loader reads the configuration
+// through viper, which lowercases every key, so a target declared as
+// "Hello-World" is stored as "hello-world"; the lookup therefore falls back to
+// a case-insensitive match to keep the CLI argument and the configured name in
+// agreement.
+//
+// Parameters:
+//   - name: The target name as supplied by the user
+//
+// Returns:
+//   - Target: The matching target configuration
+//   - bool: True if a target with that name exists
+func (c *Config) GetTarget(name string) (Target, bool) {
+	if target, ok := c.Targets[name]; ok {
+		return target, true
+	}
+	if lowered := strings.ToLower(name); lowered != name {
+		if target, ok := c.Targets[lowered]; ok {
+			return target, true
+		}
+	}
+	return Target{}, false
 }
 
 // GetCfgDir returns the configuration directory

@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"time"
 
+	cfgmodel "github.com/oota-sushikuitee/nigiri/internal/models/config"
 	"github.com/oota-sushikuitee/nigiri/internal/targets"
 	"github.com/oota-sushikuitee/nigiri/pkg/commits"
 	"github.com/oota-sushikuitee/nigiri/pkg/logger"
@@ -116,7 +117,7 @@ func (c *buildCommand) executeBuild(target string) error {
 	}
 
 	// Check if target exists in config
-	targetCfg, exists := cm.Config.Targets[target]
+	targetCfg, exists := cm.Config.GetTarget(target)
 	if !exists {
 		return logger.CreateErrorf("target '%s' not found in configuration", target)
 	}
@@ -283,20 +284,9 @@ func (c *buildCommand) executeBuild(target string) error {
 
 	// Select the appropriate build command based on the OS
 	buildCmd := targetCfg.BuildCommand
-	var cmd string
-	switch os := runtime.GOOS; os {
-	case "linux":
-		cmd = buildCmd.Linux
-	case "windows":
-		cmd = buildCmd.Windows
-	case "darwin":
-		cmd = buildCmd.Darwin
-	default:
-		return logger.CreateErrorf("unsupported OS: %s", runtime.GOOS)
-	}
-
-	if cmd == "" {
-		return logger.CreateErrorf("no build command specified for OS: %s", runtime.GOOS)
+	cmd, cmdErr := selectBuildCommand(buildCmd, cm.Config.Defaults, runtime.GOOS)
+	if cmdErr != nil {
+		return cmdErr
 	}
 
 	// Build log file path
@@ -349,44 +339,24 @@ func (c *buildCommand) executeBuild(target string) error {
 	}
 	buildDuration := time.Since(buildStartTime)
 
-	// Create a build metadata file
-	metadataPath := filepath.Join(commitDir, "build-info.txt")
-	metaFile, err := os.Create(metadataPath)
-	if err == nil {
-		defer func() {
-			if err := metaFile.Close(); err != nil {
-				logger.Warnf("failed to close metadata file: %v", err)
-			}
-		}()
-		if _, err := metaFile.WriteString(fmt.Sprintf("Target: %s\n", target)); err != nil {
-			logger.Warnf("Failed to write target info: %v", err)
-		}
-		if _, err := metaFile.WriteString(fmt.Sprintf("Commit: %s\n", headCommit.Hash)); err != nil {
-			logger.Warnf("Failed to write commit info: %v", err)
-		}
-		if _, err := metaFile.WriteString(fmt.Sprintf("Short hash: %s\n", headCommit.ShortHash)); err != nil {
-			logger.Warnf("Failed to write short hash info: %v", err)
-		}
-		if _, err := metaFile.WriteString(fmt.Sprintf("Build date: %s\n", time.Now().Format(time.RFC3339))); err != nil {
-			logger.Warnf("Failed to write build date info: %v", err)
-		}
-		if _, err := metaFile.WriteString(fmt.Sprintf("Clone duration: %s\n", cloneDuration)); err != nil {
-			logger.Warnf("Failed to write clone duration info: %v", err)
-		}
-		if _, err := metaFile.WriteString(fmt.Sprintf("Build duration: %s\n", buildDuration)); err != nil {
-			logger.Warnf("Failed to write build duration info: %v", err)
-		}
-		if _, err := metaFile.WriteString(fmt.Sprintf("OS: %s\n", runtime.GOOS)); err != nil {
-			logger.Warnf("Failed to write OS info: %v", err)
-		}
-		if _, err := metaFile.WriteString(fmt.Sprintf("Architecture: %s\n", runtime.GOARCH)); err != nil {
-			logger.Warnf("Failed to write architecture info: %v", err)
+	// Record build metadata. Only successful builds are recorded, so the build
+	// date always describes the artifacts actually present in the directory.
+	if buildErr == nil {
+		metadata := fmt.Sprintf("Target: %s\nCommit: %s\nShort hash: %s\n%s %s\nClone duration: %s\nBuild duration: %s\nOS: %s\nArchitecture: %s\n",
+			target, headCommit.Hash, headCommit.ShortHash,
+			buildDateField, time.Now().Format(time.RFC3339),
+			cloneDuration, buildDuration, runtime.GOOS, runtime.GOARCH)
+		if writeErr := os.WriteFile(filepath.Join(commitDir, buildInfoFileName), []byte(metadata), 0644); writeErr != nil {
+			logger.Warnf("Failed to write build metadata: %v", writeErr)
 		}
 	}
 
-	// Process source files based on binary_only option or always compress them
+	// Only a successful build produces artifacts. A failed forced rebuild must
+	// leave the previous build's artifacts untouched instead of replacing them
+	// with the output of a build that did not run.
 	if buildErr == nil {
 		// Copy built binary if binary path is specified
+		binaryCaptured := false
 		binaryPath, hasBinaryPath := buildCmd.BinaryPath()
 		if hasBinaryPath {
 			// If binary path is specified, copy it to the commit directory
@@ -400,26 +370,37 @@ func (c *buildCommand) executeBuild(target string) error {
 				// Copy the binary
 				if copyErr := copyFile(sourceFile, destFile); copyErr != nil {
 					logger.Warnf("Failed to copy binary: %v", copyErr)
+				} else {
+					binaryCaptured = true
 				}
 			}
 		}
-	}
 
-	// Handle binary_only option or compress source
-	if targetCfg.BinaryOnly {
-		// If binary_only is set, remove source directory
-		if err := os.RemoveAll(cloneDir); err != nil {
-			logger.Warnf("Failed to remove source directory: %v", err)
-		}
-	} else {
-		// Compress source directory
-		srcTarGzPath := filepath.Join(commitDir, "source.tar.gz")
-		if err := compressDirectory(cloneDir, srcTarGzPath); err != nil {
-			logger.Warnf("Failed to compress source directory: %v", err)
-		} else {
-			// If compression successful, remove source directory
+		// Handle binary_only option or compress source. Dropping the source
+		// without a binary would leave nothing runnable behind, so the archive
+		// is kept whenever no binary was captured.
+		if targetCfg.BinaryOnly && binaryCaptured {
+			// If binary_only is set, remove source directory
 			if err := os.RemoveAll(cloneDir); err != nil {
-				logger.Warnf("Failed to remove source directory after compression: %v", err)
+				logger.Warnf("Failed to remove source directory: %v", err)
+			}
+		} else {
+			if targetCfg.BinaryOnly {
+				logger.Warnf("binary-only is set for target '%s' but no binary was captured; keeping the source archive", target)
+			}
+			// Compress source directory
+			srcTarGzPath := filepath.Join(commitDir, "source.tar.gz")
+			if err := compressDirectory(cloneDir, srcTarGzPath); err != nil {
+				logger.Warnf("Failed to compress source directory (keeping the source tree): %v", err)
+				// A partial archive would fail to extract later; drop it.
+				if rmErr := os.Remove(srcTarGzPath); rmErr != nil && !os.IsNotExist(rmErr) {
+					logger.Warnf("Failed to remove incomplete archive %s: %v", srcTarGzPath, rmErr)
+				}
+			} else {
+				// If compression successful, remove source directory
+				if err := os.RemoveAll(cloneDir); err != nil {
+					logger.Warnf("Failed to remove source directory after compression: %v", err)
+				}
 			}
 		}
 	}
@@ -433,6 +414,45 @@ func (c *buildCommand) executeBuild(target string) error {
 	c.cmd.Printf("Target '%s' built at commit %s\n", target, headCommit.ShortHash)
 	c.cmd.Printf("Run with: nigiri run %s %s\n", target, headCommit.ShortHash)
 	return nil
+}
+
+// selectBuildCommand returns the build command to run for goos, falling back to
+// the configuration's `defaults` section when the target defines no command of
+// its own.
+//
+// Parameters:
+//   - target: The target's own build command configuration
+//   - defaults: The configuration-wide default build commands
+//   - goos: The operating system to select the command for
+//
+// Returns:
+//   - string: The command to run
+//   - error: An error when the OS is unsupported or no command is configured
+func selectBuildCommand(target, defaults cfgmodel.BuildCommand, goos string) (string, error) {
+	forOS := func(bc cfgmodel.BuildCommand) (string, bool) {
+		switch goos {
+		case "linux":
+			return bc.Linux, true
+		case "windows":
+			return bc.Windows, true
+		case "darwin":
+			return bc.Darwin, true
+		default:
+			return "", false
+		}
+	}
+
+	cmd, supported := forOS(target)
+	if !supported {
+		return "", logger.CreateErrorf("unsupported OS: %s", goos)
+	}
+	if cmd == "" {
+		cmd, _ = forOS(defaults)
+	}
+	if cmd == "" {
+		return "", logger.CreateErrorf("no build command specified for OS: %s", goos)
+	}
+	return cmd, nil
 }
 
 // buildWaitDelay bounds how long Wait blocks after the build shell has exited
@@ -456,7 +476,8 @@ const buildWaitDelay = 5 * time.Second
 // Returns:
 //   - error: Any error encountered while running the build command
 func runBuildCommand(ctx context.Context, command string, stdout, stderr io.Writer, env []string, waitDelay time.Duration) error {
-	execCmd := exec.CommandContext(ctx, "/bin/sh", "-c", command)
+	shell, shellArgs := buildShell()
+	execCmd := exec.CommandContext(ctx, shell, append(shellArgs, command)...)
 	execCmd.Stdout = stdout
 	execCmd.Stderr = stderr
 	execCmd.Env = env
@@ -473,8 +494,19 @@ func runBuildCommand(ctx context.Context, command string, stdout, stderr io.Writ
 	return err
 }
 
-// copyFile copies a file from src to dst
+// copyFile copies a file from src to dst. A source above the size limit is
+// rejected rather than copied truncated, since the result would be reported as
+// a successful build and then executed.
 func copyFile(src, dst string) error {
+	// Get file info up front: the size decides whether the copy may proceed
+	info, err := os.Stat(src)
+	if err != nil {
+		return fmt.Errorf("failed to get file info: %w", err)
+	}
+	if info.Size() > maxFileSizeForArchive {
+		return fmt.Errorf("file %s exceeds the %d byte size limit", src, int64(maxFileSizeForArchive))
+	}
+
 	// Open source file
 	sourceFile, err := os.Open(src)
 	if err != nil {
@@ -497,16 +529,9 @@ func copyFile(src, dst string) error {
 		}
 	}()
 
-	// Copy file contents with size limit
-	limitedReader := io.LimitReader(sourceFile, maxFileSizeForArchive)
-	if _, err := io.Copy(destFile, limitedReader); err != nil {
+	// Copy file contents
+	if _, err := io.Copy(destFile, sourceFile); err != nil {
 		return fmt.Errorf("failed to copy file: %w", err)
-	}
-
-	// Get file permissions
-	info, err := os.Stat(src)
-	if err != nil {
-		return fmt.Errorf("failed to get file info: %w", err)
 	}
 
 	// Set file permissions
@@ -520,33 +545,34 @@ func copyFile(src, dst string) error {
 // maxFileSizeForArchive is the maximum file size allowed in archives (1GB)
 const maxFileSizeForArchive = 1 << 30
 
-// compressDirectory compresses a directory into a tar.gz file
-func compressDirectory(srcDir, tarGzPath string) error {
-	// Create tar.gz file
-	tarGzFile, err := os.Create(tarGzPath)
-	if err != nil {
-		return fmt.Errorf("failed to create tar.gz file: %w", err)
+// wrapClose annotates a non-nil Close error with msg, and returns nil otherwise
+func wrapClose(msg string, err error) error {
+	if err == nil {
+		return nil
 	}
-	defer func() {
-		if err := tarGzFile.Close(); err != nil {
-			logger.Warnf("failed to close tar.gz file: %v", err)
-		}
-	}()
+	return fmt.Errorf("%s: %w", msg, err)
+}
 
-	// Create gzip writer
+// compressDirectory compresses a directory into a tar.gz file
+func compressDirectory(srcDir, tarGzPath string) (err error) {
+	// Create tar.gz file
+	tarGzFile, createErr := os.Create(tarGzPath)
+	if createErr != nil {
+		return fmt.Errorf("failed to create tar.gz file: %w", createErr)
+	}
+
 	gzipWriter := gzip.NewWriter(tarGzFile)
-	defer func() {
-		if err := gzipWriter.Close(); err != nil {
-			logger.Warnf("failed to close gzip writer: %v", err)
-		}
-	}()
-
-	// Create tar writer
 	tarWriter := tar.NewWriter(gzipWriter)
+
+	// Closing is where the tar trailer and the gzip footer are flushed, so a
+	// short write only surfaces there. The caller deletes the source tree when
+	// this reports success, so those errors must reach it.
 	defer func() {
-		if err := tarWriter.Close(); err != nil {
-			logger.Warnf("failed to close tar writer: %v", err)
-		}
+		err = errors.Join(err,
+			wrapClose("failed to finalize tar archive", tarWriter.Close()),
+			wrapClose("failed to finalize gzip stream", gzipWriter.Close()),
+			wrapClose("failed to close tar.gz file", tarGzFile.Close()),
+		)
 	}()
 
 	// Walk through directory and add files to tar
@@ -583,6 +609,12 @@ func compressDirectory(srcDir, tarGzPath string) error {
 			return nil
 		}
 
+		// Reject oversized files rather than truncating them: the header
+		// declares the full size, so a short body corrupts the archive.
+		if info.Mode().IsRegular() && info.Size() > maxFileSizeForArchive {
+			return fmt.Errorf("file %s exceeds the %d byte archive size limit", path, int64(maxFileSizeForArchive))
+		}
+
 		// Write header
 		if err := tarWriter.WriteHeader(header); err != nil {
 			return fmt.Errorf("failed to write tar header: %w", err)
@@ -596,7 +628,7 @@ func compressDirectory(srcDir, tarGzPath string) error {
 		}
 
 		// Add file to tar using helper function to avoid defer accumulation in Walk
-		if err := addFileToTar(tarWriter, path); err != nil {
+		if err := addFileToTar(tarWriter, path, info.Size()); err != nil {
 			return err
 		}
 
@@ -604,9 +636,18 @@ func compressDirectory(srcDir, tarGzPath string) error {
 	})
 }
 
-// addFileToTar adds a single file to the tar archive with proper resource cleanup
-// and size limits to prevent resource exhaustion
-func addFileToTar(tarWriter *tar.Writer, path string) error {
+// addFileToTar adds a single file to the tar archive with proper resource cleanup.
+// Files above the archive size limit are rejected rather than truncated, because
+// a body shorter than the declared header size desynchronizes the archive.
+//
+// Parameters:
+//   - tarWriter: The archive to write the file body to
+//   - path: The file to add
+//   - size: The size declared in the already-written tar header
+//
+// Returns:
+//   - error: Any error encountered while adding the file
+func addFileToTar(tarWriter *tar.Writer, path string, size int64) error {
 	file, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("failed to open file: %w", err)
@@ -617,10 +658,12 @@ func addFileToTar(tarWriter *tar.Writer, path string) error {
 		}
 	}()
 
-	// Use LimitReader to prevent reading extremely large files
-	limitedReader := io.LimitReader(file, maxFileSizeForArchive)
-	if _, err := io.Copy(tarWriter, limitedReader); err != nil {
+	written, err := io.Copy(tarWriter, file)
+	if err != nil {
 		return fmt.Errorf("failed to write file to tar: %w", err)
+	}
+	if written != size {
+		return fmt.Errorf("file %s changed while archiving: wrote %d of %d bytes", path, written, size)
 	}
 
 	return nil

@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -37,6 +38,24 @@ func newConfigManager() *config.ConfigManager {
 	return cm
 }
 
+// ExitCodeError reports the exit status of a target process that nigiri ran on
+// the user's behalf, so the CLI can exit with the same status instead of
+// collapsing every failure into 1.
+type ExitCodeError struct {
+	// Code is the status the target exited with
+	Code int
+}
+
+// Error implements the error interface
+func (e *ExitCodeError) Error() string {
+	return fmt.Sprintf("target exited with status %d", e.Code)
+}
+
+// ExitCode returns the status the CLI should exit with
+func (e *ExitCodeError) ExitCode() int {
+	return e.Code
+}
+
 // rootCommand represents the structure for the root command
 type rootCommand struct {
 	cmd *cobra.Command
@@ -58,6 +77,10 @@ It allows you to easily build, run, and manage different versions of upstream pr
 `,
 		// Enable the --version flag on the root command
 		Version: Version,
+		// main reports errors itself; a failing command is not a usage error,
+		// so the usage text must not be dumped on top of it.
+		SilenceUsage:  true,
+		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},

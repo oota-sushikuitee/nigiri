@@ -8,6 +8,16 @@ import (
 	"time"
 )
 
+// buildShell returns the shell binary and the arguments that precede the build
+// command string on this platform.
+//
+// Returns:
+//   - string: The shell to execute
+//   - []string: The arguments to pass before the command string
+func buildShell() (string, []string) {
+	return "/bin/sh", []string{"-c"}
+}
+
 // configureBuildProcess puts the build shell in its own process group and kills
 // that whole group on cancellation, so a --timeout also stops the compilers and
 // child processes the shell spawned instead of orphaning them.

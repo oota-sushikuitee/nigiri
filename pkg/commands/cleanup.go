@@ -155,7 +155,14 @@ func (c *cleanupCommand) executeCleanup(target string) error {
 		return nil
 	}
 
-	// Sort by modification time (newest first)
+	// Retention must follow when a build was produced, not the directory mtime,
+	// which running or extracting a build rewrites.
+	for i := range builds {
+		buildPath := filepath.Join(targetRootDir, builds[i].Name)
+		builds[i].ModTime = buildTime(buildPath, builds[i].ModTime)
+	}
+
+	// Sort by build time (newest first)
 	dirutils.SortDirEntriesByTime(builds, true)
 
 	// Determine which builds to remove
