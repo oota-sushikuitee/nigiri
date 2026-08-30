@@ -14,6 +14,24 @@ Nigiri is a tool for managing upstream VCS repositories and build artifacts. It 
 
 ## Installation
 
+### Homebrew
+
+```bash
+brew install Okabe-Junya/tap/nigiri
+```
+
+### go install
+
+```bash
+go install github.com/oota-sushikuitee/nigiri/cmd/nigiri@latest
+```
+
+Replace `@latest` with a tag such as `@v0.2.1` to pin a specific version.
+
+### Release archives
+
+Prebuilt archives for Linux, macOS and Windows are attached to each [release](https://github.com/oota-sushikuitee/nigiri/releases). Download the archive for your platform and put the `nigiri` binary on your PATH.
+
 ### From Source
 
 ```bash
@@ -22,7 +40,7 @@ cd nigiri
 make build
 ```
 
-After building, you can install the binary to your PATH or use it directly from the `bin` directory.
+After building, you can install the binary to your PATH or use it directly from the `bin` directory. A source build reports its version as `dev`.
 
 ## Getting Started
 
@@ -70,8 +88,18 @@ targets:
 - `binary-only`: Whether to keep only the binary and remove source code after building (optional)
 - `build-command`: OS-specific build commands
   - `linux`, `windows`, `darwin`: Build commands for each OS
-  - `binary-path`: Path to the built binary relative to the repository root
+  - `binary-path`: Path to the built binary, relative to `working-directory` (or to the repository root when `working-directory` is unset)
 - `env`: Environment variables to set during build and run
+
+A top-level `defaults` section provides the build commands used by targets that
+define none of their own:
+
+```yaml
+defaults:
+  linux: make build
+  windows: make build
+  darwin: make build
+```
 
 ## Commands
 
@@ -89,11 +117,19 @@ nigiri init
 
 ### List
 
-List all configured targets:
+List the targets that have been built, with the number of builds each has:
 
 ```bash
 nigiri list
 ```
+
+List the builds of a single target, newest first:
+
+```bash
+nigiri list <target>
+```
+
+Targets that are configured but have not been built yet are not listed.
 
 ### Build
 
