@@ -130,65 +130,43 @@ func TestCheckout(t *testing.T) {
 	}
 }
 
+// TestClone clones the local repository built by initTestRepo, so the test
+// exercises the clone path without depending on the network or on a
+// third-party repository keeping its branches.
 func TestClone(t *testing.T) {
-	testDir := t.TempDir()
+	repoDir, _, second := initTestRepo(t)
+	destDir := filepath.Join(t.TempDir(), "clone")
 
-	// Note that this is a public repository
-	testCloneRepo := "https://github.com/Okabe-Junya/.github"
-
-	g := Git{
-		Source: testCloneRepo,
+	g := Git{Source: repoDir}
+	if err := g.Clone(destDir, Options{Depth: 1, AuthMethod: AuthNone}); err != nil {
+		t.Fatalf("failed to clone repository: %v", err)
 	}
 
-	opts := Options{
-		Depth:      1,
-		Verbose:    false,
-		AuthMethod: AuthNone,
+	if _, err := os.Stat(filepath.Join(destDir, "file.txt")); err != nil {
+		t.Errorf("cloned worktree is missing file.txt: %v", err)
 	}
-
-	err := g.Clone(testDir, opts)
-	if err != nil {
-		t.Errorf("Failed to clone repository: %v", err)
-	}
-
-	// Check if .github directory exists in the test directory
-	if _, err := os.Stat(filepath.Join(testDir, ".github")); os.IsNotExist(err) {
-		t.Errorf("Failed to clone repository: %v", err)
+	if g.HEAD != second {
+		t.Errorf("HEAD after clone = %q, want %q", g.HEAD, second)
 	}
 }
 
-func TestGetRemoteHead(t *testing.T) {
-	testDir := t.TempDir()
+func TestGetDefaultBranchRemoteHead(t *testing.T) {
+	repoDir, _, second := initTestRepo(t)
+	destDir := filepath.Join(t.TempDir(), "clone")
 
-	// Note that this is a public repository
-	testCloneRepo := "https://github.com/Okabe-Junya/.github"
-
-	g := Git{
-		Source: testCloneRepo,
+	g := Git{Source: repoDir}
+	if err := g.Clone(destDir, Options{Depth: 1, AuthMethod: AuthNone}); err != nil {
+		t.Fatalf("failed to clone repository: %v", err)
 	}
+	cloned := g.HEAD
 
-	// 新しいOptionsの構造体を使用
-	opts := Options{
-		Depth:      1,
-		Verbose:    false,
-		AuthMethod: AuthNone,
+	if err := g.GetDefaultBranchRemoteHead("master"); err != nil {
+		t.Fatalf("failed to get remote HEAD: %v", err)
 	}
-
-	err := g.Clone(testDir, opts)
-	if err != nil {
-		t.Errorf("Failed to clone repository: %v", err)
+	if g.HEAD != cloned {
+		t.Errorf("remote HEAD = %q, want the cloned HEAD %q", g.HEAD, cloned)
 	}
-
-	head1 := g.HEAD
-
-	err = g.GetDefaultBranchRemoteHead("main")
-	if err != nil {
-		t.Errorf("Failed to get remote HEAD: %v", err)
-	}
-
-	head2 := g.HEAD
-
-	if head1 != head2 {
-		t.Errorf("HEAD does not match: %v != %v", head1, head2)
+	if g.HEAD != second {
+		t.Errorf("remote HEAD = %q, want %q", g.HEAD, second)
 	}
 }

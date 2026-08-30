@@ -16,10 +16,15 @@ func TestNewBuildCommand(t *testing.T) {
 	assert.NotNil(t, cmd.cmd)
 }
 
-func TestExecuteBuild(t *testing.T) {
+func TestExecuteBuild_UnknownTarget(t *testing.T) {
+	testRoot(t)
+
 	cmd := newBuildCommand()
-	err := cmd.executeBuild("nigiri")
-	assert.Error(t, err) // Expecting error due to missing config and other dependencies
+	cmd.cmd.SetOut(io.Discard)
+
+	err := cmd.executeBuild("not-configured")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "target 'not-configured' not found in configuration")
 }
 
 // TestExecuteBuild_RemovesCommitDirOnFailure checks that a failed build leaves
