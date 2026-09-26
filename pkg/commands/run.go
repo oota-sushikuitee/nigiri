@@ -443,10 +443,20 @@ func extractTarGz(tarGzPath, destDir string) error {
 		}
 	}()
 
-	// Create tar reader
-	tarReader := tar.NewReader(gzipReader)
+	// Every filesystem operation goes through root, which rejects any path
+	// (including one reached via a symlink extracted earlier) that resolves
+	// outside destDir.
+	root, err := os.OpenRoot(destDir)
+	if err != nil {
+		return fmt.Errorf("failed to open extraction root: %w", err)
+	}
+	defer func() {
+		if err := root.Close(); err != nil {
+			logger.Warnf("failed to close extraction root: %v", err)
+		}
+	}()
 
-	// Extract each file
+	tarReader := tar.NewReader(gzipReader)
 	for {
 		header, err := tarReader.Next()
 		if err == io.EOF {
@@ -456,83 +466,34 @@ func extractTarGz(tarGzPath, destDir string) error {
 			return fmt.Errorf("tar reading error: %w", err)
 		}
 
-		// Resolve the target path and ensure it stays within destDir. Using
-		// filepath.Rel-based containment avoids the separator-unsafe prefix
-		// pitfall (e.g. "/root-evil" is not contained by "/root").
-		filePath := filepath.Join(destDir, filepath.Clean(header.Name))
-		if !isWithinDir(destDir, filePath) {
-			return fmt.Errorf("attempted path traversal in archive: %s", header.Name)
+		// Joining with "." turns absolute names into root-relative ones.
+		name := filepath.Join(".", header.Name)
+		if header.Typeflag != tar.TypeDir {
+			if err := root.MkdirAll(filepath.Dir(name), 0755); err != nil {
+				return fmt.Errorf("failed to create parent directory for %s: %w", header.Name, err)
+			}
 		}
 
 		switch header.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(filePath, 0755); err != nil {
+			if err := root.MkdirAll(name, 0755); err != nil {
 				return fmt.Errorf("failed to create directory: %w", err)
 			}
 		case tar.TypeSymlink:
-			if err := extractSymlink(destDir, filePath, header.Linkname); err != nil {
-				return err
+			if err := root.Symlink(header.Linkname, name); err != nil {
+				return fmt.Errorf("failed to create symlink: %w", err)
 			}
 		case tar.TypeLink:
-			// Hard link: the target is relative to the extraction root.
-			target := filepath.Join(destDir, filepath.Clean(header.Linkname))
-			if !isWithinDir(destDir, target) {
-				return fmt.Errorf("hard link target escapes extraction root: %s -> %s", header.Name, header.Linkname)
-			}
-			if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
-				return fmt.Errorf("failed to create parent directory: %w", err)
-			}
-			if err := os.Link(target, filePath); err != nil {
+			if err := root.Link(filepath.Join(".", header.Linkname), name); err != nil {
 				return fmt.Errorf("failed to create hard link: %w", err)
 			}
 		default:
-			// Make sure parent directory exists
-			if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
-				return fmt.Errorf("failed to create parent directory: %w", err)
-			}
-			// Extract file using helper function for proper resource management
-			if err := extractFileFromTar(tarReader, filePath, header.Mode, header.Size); err != nil {
+			if err := extractFileFromTar(tarReader, root, name, header.Mode, header.Size); err != nil {
 				return err
 			}
 		}
 	}
 
-	return nil
-}
-
-// isWithinDir reports whether target is contained within root (or equal to it),
-// using path-component-aware comparison rather than a raw string prefix.
-func isWithinDir(root, target string) bool {
-	rel, err := filepath.Rel(filepath.Clean(root), filepath.Clean(target))
-	if err != nil {
-		return false
-	}
-	return rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
-}
-
-// extractSymlink writes a symlink at linkPath pointing to linkname, rejecting
-// any link whose resolved target would escape the extraction root.
-func extractSymlink(destDir, linkPath, linkname string) error {
-	var resolved string
-	if filepath.IsAbs(linkname) {
-		resolved = filepath.Clean(linkname)
-	} else {
-		resolved = filepath.Clean(filepath.Join(filepath.Dir(linkPath), linkname))
-	}
-	if !isWithinDir(destDir, resolved) {
-		return fmt.Errorf("symlink target escapes extraction root: %s -> %s", linkPath, linkname)
-	}
-
-	if err := os.MkdirAll(filepath.Dir(linkPath), 0755); err != nil {
-		return fmt.Errorf("failed to create parent directory: %w", err)
-	}
-	// Remove any pre-existing entry so a stale target cannot be followed.
-	if err := os.Remove(linkPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to replace existing path: %w", err)
-	}
-	if err := os.Symlink(linkname, linkPath); err != nil {
-		return fmt.Errorf("failed to create symlink: %w", err)
-	}
 	return nil
 }
 
@@ -542,18 +503,19 @@ func extractSymlink(destDir, linkPath, linkname string) error {
 //
 // Parameters:
 //   - tarReader: The archive positioned at the entry to extract
-//   - filePath: The destination path
+//   - root: The extraction root the destination is resolved in
+//   - filePath: The destination path relative to root
 //   - mode: The file mode recorded in the tar header
 //   - size: The entry size recorded in the tar header
 //
 // Returns:
 //   - error: Any error encountered while extracting the entry
-func extractFileFromTar(tarReader *tar.Reader, filePath string, mode, size int64) error {
+func extractFileFromTar(tarReader *tar.Reader, root *os.Root, filePath string, mode, size int64) error {
 	if size > maxFileSizeForExtract {
 		return fmt.Errorf("archive entry %s exceeds the %d byte extraction size limit", filePath, int64(maxFileSizeForExtract))
 	}
 
-	file, err := os.Create(filePath)
+	file, err := root.Create(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to create file: %w", err)
 	}
@@ -572,7 +534,7 @@ func extractFileFromTar(tarReader *tar.Reader, filePath string, mode, size int64
 	}
 
 	// Set file permissions
-	if err := os.Chmod(filePath, os.FileMode(mode)); err != nil {
+	if err := file.Chmod(os.FileMode(mode)); err != nil {
 		return fmt.Errorf("failed to set file permissions: %w", err)
 	}
 
