@@ -388,6 +388,120 @@ func TestConfigManager_SaveCfgFile(t *testing.T) {
 	}
 }
 
+func TestConfigManager_LoadCfgFile_FileVariants(t *testing.T) {
+	tests := []struct {
+		name     string
+		fileName string
+	}{
+		{name: "yaml extension", fileName: ".nigiri.yaml"},
+		{name: "yml extension", fileName: ".nigiri.yml"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tempDir, err := os.MkdirTemp("", "nigiri-ext-config-test")
+			if err != nil {
+				t.Fatalf("Failed to create temp directory: %v", err)
+			}
+			defer os.RemoveAll(tempDir)
+
+			content := `
+targets:
+  variant-target:
+    source: https://github.com/oota-sushikuitee/nigiri
+    default-branch: main
+    build-command:
+      linux: make build
+`
+			configPath := filepath.Join(tempDir, tt.fileName)
+			if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+				t.Fatalf("Failed to write test config: %v", err)
+			}
+
+			cm := NewConfigManager()
+			cm.Config.SetCfgDir(tempDir)
+			if err := cm.LoadCfgFile(); err != nil {
+				t.Fatalf("LoadCfgFile() error = %v", err)
+			}
+			if _, exists := cm.Config.Targets["variant-target"]; !exists {
+				t.Error("variant-target not found")
+			}
+		})
+	}
+}
+
+func TestConfigManager_LoadCfgFile_SourceAlias(t *testing.T) {
+	tests := []struct {
+		name string
+		key  string
+	}{
+		{name: "source key", key: "source"},
+		{name: "sources key (fallback)", key: "sources"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tempDir, err := os.MkdirTemp("", "nigiri-source-alias-test")
+			if err != nil {
+				t.Fatalf("Failed to create temp directory: %v", err)
+			}
+			defer os.RemoveAll(tempDir)
+
+			content := "targets:\n  alias-target:\n    " + tt.key + `: https://github.com/oota-sushikuitee/nigiri
+    default-branch: main
+    build-command:
+      linux: make build
+`
+			configPath := filepath.Join(tempDir, ".nigiri.yml")
+			if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+				t.Fatalf("Failed to write test config: %v", err)
+			}
+
+			cm := NewConfigManager()
+			cm.Config.SetCfgDir(tempDir)
+			if err := cm.LoadCfgFile(); err != nil {
+				t.Fatalf("LoadCfgFile() error = %v", err)
+			}
+
+			target, exists := cm.Config.Targets["alias-target"]
+			if !exists {
+				t.Fatal("alias-target not found")
+			}
+			if target.Sources != "https://github.com/oota-sushikuitee/nigiri" {
+				t.Errorf("Sources = %s, want %s", target.Sources, "https://github.com/oota-sushikuitee/nigiri")
+			}
+		})
+	}
+}
+
+func TestConfigManager_LoadCfgFile_BadType(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "nigiri-bad-type-config-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	content := `
+targets:
+  bad-type-target:
+    source: https://github.com/oota-sushikuitee/nigiri
+    default-branch: main
+    binary-only: not-a-bool
+    build-command:
+      linux: make build
+`
+	configPath := filepath.Join(tempDir, ".nigiri.yml")
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+
+	cm := NewConfigManager()
+	cm.Config.SetCfgDir(tempDir)
+	if err := cm.LoadCfgFile(); err == nil {
+		t.Error("LoadCfgFile() expected error for non-bool binary-only value")
+	}
+}
+
 // Test saving to a directory with insufficient permissions
 func TestConfigManager_SaveCfgFile_PermissionDenied(t *testing.T) {
 	// Skip on Windows where permissions work differently
