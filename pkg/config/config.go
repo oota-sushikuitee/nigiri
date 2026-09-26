@@ -7,8 +7,33 @@ import (
 	"path/filepath"
 
 	"github.com/oota-sushikuitee/nigiri/internal/models/config"
-	"github.com/spf13/viper"
+	"go.yaml.in/yaml/v3"
 )
+
+// fileConfig mirrors the on-disk YAML layout of a nigiri configuration file.
+type fileConfig struct {
+	Targets  map[string]targetConfig `yaml:"targets"`
+	Defaults map[string]string       `yaml:"defaults"`
+}
+
+// targetConfig mirrors the on-disk YAML layout of a single target. Source is
+// the current key; Sources is kept as a fallback alias for older config files.
+type targetConfig struct {
+	BuildCommand     buildCommandConfig `yaml:"build-command"`
+	Source           string             `yaml:"source"`
+	Sources          string             `yaml:"sources,omitempty"`
+	DefaultBranch    string             `yaml:"default-branch"`
+	WorkingDirectory string             `yaml:"working-directory"`
+	Env              []string           `yaml:"env,omitempty"`
+	BinaryOnly       bool               `yaml:"binary-only"`
+}
+
+type buildCommandConfig struct {
+	Linux      string `yaml:"linux"`
+	Windows    string `yaml:"windows"`
+	Darwin     string `yaml:"darwin"`
+	BinaryPath string `yaml:"binary-path,omitempty"`
+}
 
 // ConfigManager handles the reading and writing of configuration files
 type ConfigManager struct {
@@ -29,146 +54,81 @@ func NewConfigManager() *ConfigManager {
 	}
 }
 
+// configFilePath resolves the configuration file to load: the explicit
+// --config path when set, otherwise the first of .nigiri.yaml / .nigiri.yml
+// found in the configuration directory.
+func (cm *ConfigManager) configFilePath() (string, error) {
+	if cfgFile := cm.Config.GetCfgFile(); cfgFile != "" {
+		return cfgFile, nil
+	}
+
+	cfgDir := cm.Config.GetCfgDir()
+	if cfgDir == "" {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("could not determine home directory: %w", err)
+		}
+		cfgDir = filepath.Join(homeDir, ".nigiri")
+		cm.Config.SetCfgDir(cfgDir)
+	}
+
+	for _, name := range []string{".nigiri.yaml", ".nigiri.yml"} {
+		candidate := filepath.Join(cfgDir, name)
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("failed to read config file: no .nigiri.yaml or .nigiri.yml found in %s", cfgDir)
+}
+
 // LoadCfgFile loads the configuration file. When an explicit config file path
 // has been set (e.g. via the --config flag), that file is loaded directly;
 // otherwise the file is discovered in the configuration directory.
 func (cm *ConfigManager) LoadCfgFile() error {
-	v := viper.New()
-
-	if cfgFile := cm.Config.GetCfgFile(); cfgFile != "" {
-		v.SetConfigFile(cfgFile)
-	} else {
-		cfgDir := cm.Config.GetCfgDir()
-		if cfgDir == "" {
-			homeDir, err := os.UserHomeDir()
-			if err != nil {
-				return fmt.Errorf("could not determine home directory: %w", err)
-			}
-			cfgDir = filepath.Join(homeDir, ".nigiri")
-			cm.Config.SetCfgDir(cfgDir)
-		}
-
-		v.SetConfigName(".nigiri")
-		v.SetConfigType("yaml")
-		v.AddConfigPath(cfgDir)
+	path, err := cm.configFilePath()
+	if err != nil {
+		return err
 	}
 
-	if err := v.ReadInConfig(); err != nil {
+	data, err := os.ReadFile(path)
+	if err != nil {
 		return fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	// Create a map to store the intermediate configuration
-	var cfg struct {
-		Targets  map[string]map[string]interface{} `mapstructure:"targets"`
-		Defaults map[string]string                 `mapstructure:"defaults"`
-	}
-
-	if err := v.Unmarshal(&cfg); err != nil {
+	var file fileConfig
+	if err := yaml.Unmarshal(data, &file); err != nil {
 		return fmt.Errorf("failed to parse config file: %w", err)
 	}
 
-	if len(cfg.Targets) == 0 {
-		return fmt.Errorf("no targets found in configuration file at %s", v.ConfigFileUsed())
+	if len(file.Targets) == 0 {
+		return fmt.Errorf("no targets found in configuration file at %s", path)
 	}
 
-	// Convert the map to our config structure
-	cm.Config.Targets = make(map[string]config.Target)
-	for name, targetCfg := range cfg.Targets {
-		target := config.Target{}
-
-		// Handle source/sources field with safe type assertion
-		if source, ok := targetCfg["source"]; ok {
-			if s, ok := source.(string); ok {
-				target.Sources = s
-			} else {
-				return fmt.Errorf("invalid type for 'source' in target '%s': expected string", name)
-			}
-		} else if sources, ok := targetCfg["sources"]; ok {
-			if s, ok := sources.(string); ok {
-				target.Sources = s
-			} else {
-				return fmt.Errorf("invalid type for 'sources' in target '%s': expected string", name)
-			}
+	cm.Config.Targets = make(map[string]config.Target, len(file.Targets))
+	for name, t := range file.Targets {
+		source := t.Source
+		if source == "" {
+			source = t.Sources
 		}
-
-		// Handle other fields with safe type assertions
-		if branch, ok := targetCfg["default-branch"]; ok {
-			if b, ok := branch.(string); ok {
-				target.DefaultBranch = b
-			} else {
-				return fmt.Errorf("invalid type for 'default-branch' in target '%s': expected string", name)
-			}
+		cm.Config.Targets[name] = config.Target{
+			Sources:          source,
+			DefaultBranch:    t.DefaultBranch,
+			BinaryOnly:       t.BinaryOnly,
+			WorkingDirectory: t.WorkingDirectory,
+			Env:              t.Env,
+			BuildCommand: config.BuildCommand{
+				Linux:           t.BuildCommand.Linux,
+				Windows:         t.BuildCommand.Windows,
+				Darwin:          t.BuildCommand.Darwin,
+				BinaryPathValue: t.BuildCommand.BinaryPath,
+			},
 		}
-		if binaryOnly, ok := targetCfg["binary-only"]; ok {
-			if b, ok := binaryOnly.(bool); ok {
-				target.BinaryOnly = b
-			} else {
-				return fmt.Errorf("invalid type for 'binary-only' in target '%s': expected bool", name)
-			}
-		}
-		if workingDir, ok := targetCfg["working-directory"]; ok {
-			if w, ok := workingDir.(string); ok {
-				target.WorkingDirectory = w
-			} else {
-				return fmt.Errorf("invalid type for 'working-directory' in target '%s': expected string", name)
-			}
-		}
-		if env, ok := targetCfg["env"]; ok {
-			if envSlice, isSlice := env.([]interface{}); isSlice {
-				for i, e := range envSlice {
-					if s, ok := e.(string); ok {
-						target.Env = append(target.Env, s)
-					} else {
-						return fmt.Errorf("invalid type for 'env[%d]' in target '%s': expected string", i, name)
-					}
-				}
-			} else {
-				return fmt.Errorf("invalid type for 'env' in target '%s': expected array", name)
-			}
-		}
-
-		// Handle build command with safe type assertions
-		if buildCmd, ok := targetCfg["build-command"].(map[string]interface{}); ok {
-			if linux, exists := buildCmd["linux"]; exists {
-				if l, ok := linux.(string); ok {
-					target.BuildCommand.Linux = l
-				} else {
-					return fmt.Errorf("invalid type for 'build-command.linux' in target '%s': expected string", name)
-				}
-			}
-			if windows, exists := buildCmd["windows"]; exists {
-				if w, ok := windows.(string); ok {
-					target.BuildCommand.Windows = w
-				} else {
-					return fmt.Errorf("invalid type for 'build-command.windows' in target '%s': expected string", name)
-				}
-			}
-			if darwin, exists := buildCmd["darwin"]; exists {
-				if d, ok := darwin.(string); ok {
-					target.BuildCommand.Darwin = d
-				} else {
-					return fmt.Errorf("invalid type for 'build-command.darwin' in target '%s': expected string", name)
-				}
-			}
-			if binPath, exists := buildCmd["binary-path"]; exists {
-				if b, ok := binPath.(string); ok {
-					target.BuildCommand.BinaryPathValue = b
-				} else {
-					return fmt.Errorf("invalid type for 'build-command.binary-path' in target '%s': expected string", name)
-				}
-			}
-		}
-
-		cm.Config.Targets[name] = target
 	}
 
-	// Handle defaults
-	if cfg.Defaults != nil {
-		cm.Config.Defaults = config.BuildCommand{
-			Linux:   cfg.Defaults["linux"],
-			Windows: cfg.Defaults["windows"],
-			Darwin:  cfg.Defaults["darwin"],
-		}
+	cm.Config.Defaults = config.BuildCommand{
+		Linux:   file.Defaults["linux"],
+		Windows: file.Defaults["windows"],
+		Darwin:  file.Defaults["darwin"],
 	}
 
 	return nil
@@ -177,54 +137,42 @@ func (cm *ConfigManager) LoadCfgFile() error {
 // SaveCfgFile saves the configuration to the configuration file
 func (cm *ConfigManager) SaveCfgFile() error {
 	cfgDir := cm.Config.GetCfgDir()
-	v := viper.New()
-	v.SetConfigName(".nigiri")
-	v.SetConfigType("yaml")
-	v.AddConfigPath(cfgDir)
 
-	// Create target configurations that properly include all fields
-	targetConfigs := make(map[string]map[string]interface{})
-	for name, target := range cm.Config.Targets {
-		targetConfig := map[string]interface{}{
-			"source":            target.Sources,
-			"default-branch":    target.DefaultBranch,
-			"binary-only":       target.BinaryOnly,
-			"working-directory": target.WorkingDirectory,
-		}
-
-		if len(target.Env) > 0 {
-			targetConfig["env"] = target.Env
-		}
-
-		buildCommand := map[string]interface{}{
-			"linux":   target.BuildCommand.Linux,
-			"windows": target.BuildCommand.Windows,
-			"darwin":  target.BuildCommand.Darwin,
-		}
-
-		if target.BuildCommand.BinaryPathValue != "" {
-			buildCommand["binary-path"] = target.BuildCommand.BinaryPathValue
-		}
-
-		targetConfig["build-command"] = buildCommand
-		targetConfigs[name] = targetConfig
-	}
-
-	// Set values in viper
-	if err := v.MergeConfigMap(map[string]interface{}{
-		"targets": targetConfigs,
-		"defaults": map[string]interface{}{
+	file := fileConfig{
+		Targets: make(map[string]targetConfig, len(cm.Config.Targets)),
+		Defaults: map[string]string{
 			"linux":   cm.Config.Defaults.Linux,
 			"windows": cm.Config.Defaults.Windows,
 			"darwin":  cm.Config.Defaults.Darwin,
 		},
-	}); err != nil {
-		return fmt.Errorf("failed to merge config: %w", err)
 	}
 
-	// Save to file
+	for name, target := range cm.Config.Targets {
+		file.Targets[name] = targetConfig{
+			Source:           target.Sources,
+			DefaultBranch:    target.DefaultBranch,
+			BinaryOnly:       target.BinaryOnly,
+			WorkingDirectory: target.WorkingDirectory,
+			Env:              target.Env,
+			BuildCommand: buildCommandConfig{
+				Linux:      target.BuildCommand.Linux,
+				Windows:    target.BuildCommand.Windows,
+				Darwin:     target.BuildCommand.Darwin,
+				BinaryPath: target.BuildCommand.BinaryPathValue,
+			},
+		}
+	}
+
+	data, err := yaml.Marshal(file)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
 	configFile := filepath.Join(cfgDir, ".nigiri.yml")
-	return v.WriteConfigAs(configFile)
+	if err := os.WriteFile(configFile, data, 0o644); err != nil {
+		return fmt.Errorf("failed to write config file: %w", err)
+	}
+	return nil
 }
 
 // GetConfig returns the configuration

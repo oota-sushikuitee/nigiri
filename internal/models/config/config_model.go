@@ -10,8 +10,8 @@ import "strings"
 //   - Targets: A map of target names to their configurations
 //   - Defaults: The default build command configuration
 type Config struct {
-	Targets  map[string]Target `mapstructure:"targets"`
-	Defaults BuildCommand      `mapstructure:"defaults"`
+	Targets  map[string]Target
+	Defaults BuildCommand
 	cfgDir   string
 	cfgFile  string
 }
@@ -26,12 +26,12 @@ type Config struct {
 //   - WorkingDirectory: The directory within the repository to run the build command
 //   - BinaryOnly: Whether to keep only the binary and remove source code after build
 type Target struct {
-	BuildCommand     BuildCommand `yaml:"build_command"`
-	DefaultBranch    string       `yaml:"default_branch"`
-	Sources          string       `yaml:"sources"`
-	WorkingDirectory string       `yaml:"working_directory"`
-	Env              []string     `yaml:"env"`
-	BinaryOnly       bool         `yaml:"binary_only"`
+	BuildCommand     BuildCommand
+	DefaultBranch    string
+	Sources          string
+	WorkingDirectory string
+	Env              []string
+	BinaryOnly       bool
 }
 
 // BuildCommand represents the build command configuration for a target
@@ -42,10 +42,10 @@ type Target struct {
 //   - Darwin: The build command for macOS
 //   - BinaryPath: The path to the built binary
 type BuildCommand struct {
-	Linux           string `mapstructure:"linux"`
-	Windows         string `mapstructure:"windows"`
-	Darwin          string `mapstructure:"darwin"`
-	BinaryPathValue string `mapstructure:"binary-path"`
+	Linux           string
+	Windows         string
+	Darwin          string
+	BinaryPathValue string
 }
 
 // BinaryPath returns the configured binary path if set, otherwise false
@@ -60,11 +60,9 @@ func (bc BuildCommand) BinaryPath() (string, bool) {
 	return bc.BinaryPathValue, true
 }
 
-// GetTarget looks up a target by name. The loader reads the configuration
-// through viper, which lowercases every key, so a target declared as
-// "Hello-World" is stored as "hello-world"; the lookup therefore falls back to
-// a case-insensitive match to keep the CLI argument and the configured name in
-// agreement.
+// GetTarget looks up a target by name, falling back to a case-insensitive
+// match so the CLI argument and the configured target name do not have to
+// agree on case exactly.
 //
 // Parameters:
 //   - name: The target name as supplied by the user
