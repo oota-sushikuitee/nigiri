@@ -108,16 +108,6 @@ func TestExtractTarGz_MaliciousEntries(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:    "symlink escaping root via relative target",
-			header:  &tar.Header{Name: "link", Typeflag: tar.TypeSymlink, Linkname: "../../../../etc/passwd"},
-			wantErr: true,
-		},
-		{
-			name:    "symlink escaping root via absolute target",
-			header:  &tar.Header{Name: "link", Typeflag: tar.TypeSymlink, Linkname: "/etc/passwd"},
-			wantErr: true,
-		},
-		{
 			name:    "symlink within root is allowed",
 			header:  &tar.Header{Name: "link", Typeflag: tar.TypeSymlink, Linkname: "safe.txt"},
 			wantErr: false,
@@ -150,16 +140,73 @@ func TestExtractTarGz_MaliciousEntries(t *testing.T) {
 	}
 }
 
-// TestExtractTarGz_PrefixSiblingNotEscaped guards against the separator-unsafe
-// prefix check: a destination like ".../root" must not be considered to contain
-// a sibling like ".../root-evil".
-func TestIsWithinDir_PrefixSibling(t *testing.T) {
-	root := filepath.Join("tmp", "root")
-	sibling := filepath.Join("tmp", "root-evil", "x")
-	if isWithinDir(root, sibling) {
-		t.Errorf("isWithinDir(%q, %q) = true, want false", root, sibling)
+func TestExtractTarGz_NoEscape(t *testing.T) {
+	sym := func(name, target string) *tar.Header {
+		return &tar.Header{Name: name, Typeflag: tar.TypeSymlink, Linkname: target}
 	}
-	if !isWithinDir(root, filepath.Join(root, "sub", "file")) {
-		t.Errorf("isWithinDir did not contain a genuine child path")
+	reg := func(name string) *tar.Header {
+		return &tar.Header{Name: name, Typeflag: tar.TypeReg, Mode: 0644, Size: 3}
+	}
+	hard := func(name, target string) *tar.Header {
+		return &tar.Header{Name: name, Typeflag: tar.TypeLink, Linkname: target}
+	}
+
+	tests := []struct {
+		name    string
+		entries []*tar.Header
+	}{
+		{"parent traversal", []*tar.Header{reg("../escape.txt")}},
+		{"absolute name", []*tar.Header{reg("/escape.txt")}},
+		{"write through escaping symlink", []*tar.Header{sym("d", ".."), reg("d/escape.txt")}},
+		{"write through absolute symlink", []*tar.Header{sym("d", "PARENT"), reg("d/escape.txt")}},
+		{"symlink planted via symlinked parent", []*tar.Header{sym("a", "."), sym("a/b", ".."), reg("b/escape.txt")}},
+		{"symlink chain", []*tar.Header{sym("l1", "l2"), sym("a", "."), sym("a/l2", ".."), reg("l1/escape.txt")}},
+		{"hard link to outside file", []*tar.Header{hard("h", "../secret.txt")}},
+		{"hard link through symlink", []*tar.Header{sym("a", "."), sym("a/b", ".."), hard("h", "b/secret.txt")}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parent := t.TempDir()
+			secret := filepath.Join(parent, "secret.txt")
+			if err := os.WriteFile(secret, []byte("secret"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			dstDir := filepath.Join(parent, "dst")
+			if err := os.Mkdir(dstDir, 0755); err != nil {
+				t.Fatal(err)
+			}
+
+			bodies := map[string]string{}
+			for _, h := range tt.entries {
+				if h.Linkname == "PARENT" {
+					h.Linkname = parent
+				}
+				if h.Typeflag == tar.TypeReg {
+					bodies[h.Name] = "bad"
+				}
+			}
+			archive := filepath.Join(t.TempDir(), "mal.tar.gz")
+			writeTarGz(t, archive, tt.entries, bodies)
+
+			_ = extractTarGz(archive, dstDir)
+
+			if _, err := os.Lstat(filepath.Join(parent, "escape.txt")); err == nil {
+				t.Errorf("archive wrote outside the extraction root")
+			}
+			secretInfo, err := os.Stat(secret)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = filepath.WalkDir(dstDir, func(path string, d os.DirEntry, err error) error {
+				if err != nil || !d.Type().IsRegular() {
+					return err
+				}
+				if info, err := os.Lstat(path); err == nil && os.SameFile(info, secretInfo) {
+					t.Errorf("%s is a hard link to a file outside the extraction root", path)
+				}
+				return nil
+			})
+		})
 	}
 }
