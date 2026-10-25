@@ -30,14 +30,13 @@ categories:
 change-template: "- $TITLE @$AUTHOR (#$NUMBER)"
 change-title-escapes: '\<*_&'
 
+# Renovate's "major"/"minor" labels describe the dependency's bump, not nigiri's API, so they must not drive the version.
 version-resolver:
   major:
     labels:
-      - "major"
       - "breaking"
   minor:
     labels:
-      - "minor"
       - "feature"
       - "enhancement"
       - "kind/feature"
