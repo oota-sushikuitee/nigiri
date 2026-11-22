@@ -76,9 +76,15 @@ func TestListTargetCommits_NotInstalled(t *testing.T) {
 	testRoot(t)
 
 	_, err := runList(t, "sample")
+	require.EqualError(t, err, "target 'sample' is not installed")
+}
+
+func TestListTargetCommits_InvalidName(t *testing.T) {
+	testRoot(t)
+
+	_, err := runList(t, "../sample")
 	require.Error(t, err)
-	// The missing target root is reported before the command's own check.
-	assert.Contains(t, err.Error(), "sample")
+	assert.Contains(t, err.Error(), "invalid target name")
 }
 
 // TestListTargetCommits_NewestFirst checks that commits are listed by build
