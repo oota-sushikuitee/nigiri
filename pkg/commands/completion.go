@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/oota-sushikuitee/nigiri/internal/targets"
-	"github.com/oota-sushikuitee/nigiri/pkg/commits"
 )
 
 // getConfiguredTargets returns a list of target names from the configuration file
@@ -70,10 +69,7 @@ func getInstalledTargets(prefix string) []string {
 // Returns:
 //   - []string: A list of matching commit hashes
 func getTargetCommits(target, prefix string) []string {
-	fsTarget := targets.Target{
-		Target:  target,
-		Commits: commits.Commits{},
-	}
+	fsTarget := targets.Target{Target: target}
 
 	targetRootDir, err := fsTarget.GetTargetRootDir(nigiriRoot)
 	if err != nil {

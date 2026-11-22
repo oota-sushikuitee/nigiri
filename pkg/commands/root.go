@@ -3,7 +3,6 @@ package commands
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 
@@ -62,7 +61,6 @@ func (e *ExitCodeError) ExitCode() int {
 // rootCommand represents the structure for the root command.
 type rootCommand struct {
 	cmd *cobra.Command
-	log *log.Logger
 }
 
 // NewRootCommand creates a new root command instance which serves as the base command
@@ -103,7 +101,6 @@ It allows you to easily build, run, and manage different versions of upstream pr
 	rootCmd.AddCommand(newListCommand().cmd)
 
 	c.cmd = rootCmd
-	c.log = log.New(log.Writer(), "nigiri: ", log.LstdFlags)
 
 	return c
 }

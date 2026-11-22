@@ -133,10 +133,7 @@ func (c *buildCommand) executeBuild(target string) error {
 	}
 
 	// Create target directory if it doesn't exist
-	fsTarget := targets.Target{
-		Target:  target,
-		Commits: commits.Commits{},
-	}
+	fsTarget := targets.Target{Target: target}
 
 	if _, createErr := fsTarget.CreateTargetRootDirIfNotExist(nigiriRoot); createErr != nil {
 		return logger.CreateErrorf("failed to create target directory: %w", createErr)

@@ -11,22 +11,16 @@ import (
 	"github.com/oota-sushikuitee/nigiri/pkg/logger"
 )
 
-const bytesPerKB = 1 << 10
-
 // DirEntry represents a directory entry with its name, time, and whether it's a directory
 //
 // Fields:
 //   - ModTime: The modification time of the entry
 //   - Name: The name of the entry
-//   - SizeInKB: The size of the entry in kilobytes
-//   - Permission: The file permissions
 //   - IsDir: Whether the entry is a directory
 type DirEntry struct {
-	ModTime    time.Time
-	Name       string
-	SizeInKB   int64
-	Permission os.FileMode
-	IsDir      bool
+	ModTime time.Time
+	Name    string
+	IsDir   bool
 }
 
 // SortDirEntriesByTime sorts directory entries by modification time.
@@ -38,19 +32,6 @@ func SortDirEntriesByTime(entries []DirEntry, descending bool) {
 	} else {
 		sort.Slice(entries, func(i, j int) bool {
 			return entries[i].ModTime.Before(entries[j].ModTime)
-		})
-	}
-}
-
-// SortDirEntriesByName sorts directory entries by name.
-func SortDirEntriesByName(entries []DirEntry, descending bool) {
-	if descending {
-		sort.Slice(entries, func(i, j int) bool {
-			return entries[i].Name > entries[j].Name
-		})
-	} else {
-		sort.Slice(entries, func(i, j int) bool {
-			return entries[i].Name < entries[j].Name
 		})
 	}
 }
@@ -81,11 +62,9 @@ func GetDirEntries(dir string, filter string) ([]DirEntry, error) {
 		}
 
 		result = append(result, DirEntry{
-			Name:       entry.Name(),
-			ModTime:    info.ModTime(),
-			IsDir:      entry.IsDir(),
-			SizeInKB:   info.Size() / bytesPerKB,
-			Permission: info.Mode().Perm(),
+			Name:    entry.Name(),
+			ModTime: info.ModTime(),
+			IsDir:   entry.IsDir(),
 		})
 	}
 
@@ -112,70 +91,6 @@ func GetDirSize(path string) (int64, error) {
 	}
 
 	return size, nil
-}
-
-// EnsureDirExists ensures that the specified directory exists.
-func EnsureDirExists(dir string) error {
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return logger.CreateErrorf("failed to create directory %s: %w", dir, err)
-		}
-	}
-
-	return nil
-}
-
-// CleanOldDirs removes old directories based on a maximum count or age.
-func CleanOldDirs(parentDir string, maxDirs int, maxAge time.Duration) error {
-	entries, err := os.ReadDir(parentDir)
-	if err != nil {
-		return logger.CreateErrorf("failed to read directory: %w", err)
-	}
-
-	var dirs []DirEntry
-
-	for _, entry := range entries {
-		if entry.IsDir() {
-			info, err := entry.Info()
-			if err != nil {
-				continue
-			}
-
-			dirs = append(dirs, DirEntry{
-				Name:    entry.Name(),
-				ModTime: info.ModTime(),
-				IsDir:   true,
-			})
-		}
-	}
-
-	// Sort by modification time (oldest first)
-	SortDirEntriesByTime(dirs, false)
-
-	// Remove old directories by count
-	if maxDirs > 0 && len(dirs) > maxDirs {
-		for i := range len(dirs) - maxDirs {
-			dirToRemove := filepath.Join(parentDir, dirs[i].Name)
-			if err := os.RemoveAll(dirToRemove); err != nil {
-				return logger.CreateErrorf("failed to remove directory %s: %w", dirToRemove, err)
-			}
-		}
-	}
-
-	// Remove old directories by age
-	if maxAge > 0 {
-		now := time.Now()
-		for _, dir := range dirs {
-			if now.Sub(dir.ModTime) > maxAge {
-				dirToRemove := filepath.Join(parentDir, dir.Name)
-				if err := os.RemoveAll(dirToRemove); err != nil {
-					return logger.CreateErrorf("failed to remove directory %s: %w", dirToRemove, err)
-				}
-			}
-		}
-	}
-
-	return nil
 }
 
 // Exists checks if a file or directory exists at the given path

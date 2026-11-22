@@ -75,10 +75,6 @@ func TestTargetRootDirRejectsInvalidNames(t *testing.T) {
 			t.Errorf("GetTargetRootDir(%q) should fail for invalid target name", name)
 		}
 
-		if _, err := tgt.CreateTargetRootDir(testDir); err == nil {
-			t.Errorf("CreateTargetRootDir(%q) should fail for invalid target name", name)
-		}
-
 		if _, err := tgt.CreateTargetRootDirIfNotExist(testDir); err == nil {
 			t.Errorf("CreateTargetRootDirIfNotExist(%q) should fail for invalid target name", name)
 		}
@@ -119,47 +115,6 @@ func TestGetTargetRootDir(t *testing.T) {
 	})
 }
 
-func TestGetTargetHeadDir(t *testing.T) {
-	t.Run("No commits found", func(t *testing.T) {
-		tgt := Target{
-			Target:  "test",
-			Commits: commits.Commits{},
-		}
-
-		_, err := tgt.GetTargetHeadDir(tmpNigiriRoot)
-		if err == nil {
-			t.Errorf("Expected error, got nil")
-		}
-	})
-
-	t.Run("Commits found", func(t *testing.T) {
-		tgt := Target{
-			Target: "test",
-			Commits: commits.Commits{
-				Commits: []commits.Commit{
-					{
-						Hash:      "1234567890abcdef1234567890abcdef12345678",
-						ShortHash: "1234567",
-					},
-					{
-						Hash:      "abcdef1234567890abcdef1234567890abcdef12",
-						ShortHash: "abcdef1",
-					},
-				},
-			},
-		}
-		testDir := filepath.Join(tmpNigiriRoot, "test", "abcdef1")
-		os.MkdirAll(testDir, 0o755)
-
-		defer os.RemoveAll(filepath.Join(tmpNigiriRoot, "test"))
-
-		_, err := tgt.GetTargetHeadDir(tmpNigiriRoot)
-		if err != nil {
-			t.Errorf("Expected nil, got %v", err)
-		}
-	})
-}
-
 func TestTarget_CreateTargetRootDirIfNotExist(t *testing.T) {
 	testDir := setupTestDir(t)
 	defer cleanupTestDir(t, testDir)
@@ -181,24 +136,6 @@ func TestTarget_CreateTargetRootDirIfNotExist(t *testing.T) {
 	_, err = target.CreateTargetRootDirIfNotExist(testDir)
 	if err != nil {
 		t.Errorf("CreateTargetRootDirIfNotExist() on existing dir error = %v", err)
-	}
-}
-
-func TestTarget_CreateTargetRootDir(t *testing.T) {
-	testDir := setupTestDir(t)
-	defer cleanupTestDir(t, testDir)
-
-	target := Target{Target: "test-target"}
-	// First call should succeed
-	_, err := target.CreateTargetRootDir(testDir)
-	if err != nil {
-		t.Errorf("CreateTargetRootDir() first call error = %v", err)
-	}
-
-	// Second call should fail since directory already exists
-	_, err = target.CreateTargetRootDir(testDir)
-	if err == nil {
-		t.Errorf("CreateTargetRootDir() second call should return error but didn't")
 	}
 }
 
@@ -253,7 +190,7 @@ func TestIsExistTargetCommitDir(t *testing.T) {
 	}
 }
 
-func TestCreateAndGetTargetCommitDir(t *testing.T) {
+func TestCreateTargetCommitDir(t *testing.T) {
 	testDir := setupTestDir(t)
 	defer cleanupTestDir(t, testDir)
 
@@ -281,85 +218,12 @@ func TestCreateAndGetTargetCommitDir(t *testing.T) {
 		t.Errorf("CreateTargetCommitDir() second call should return error")
 	}
 
-	// GetTargetCommitDir should succeed
-	gotDir, err := GetTargetCommitDir(testDir, commit)
-	if err != nil {
-		t.Errorf("GetTargetCommitDir() error = %v", err)
-	}
-
-	if gotDir != expectedDir {
-		t.Errorf("GetTargetCommitDir() = %v, want %v", gotDir, expectedDir)
-	}
-
-	// Test with invalid commit
 	invalidCommit := commits.Commit{
 		Hash:      "",
 		ShortHash: "",
 	}
 
-	_, err = GetTargetCommitDir(testDir, invalidCommit)
-	if err == nil {
-		t.Errorf("GetTargetCommitDir() should fail with invalid commit")
-	}
-}
-
-func TestTarget_GetTargetHeadDir_Detailed(t *testing.T) {
-	testDir := setupTestDir(t)
-	defer cleanupTestDir(t, testDir)
-
-	target := Target{
-		Target: "test-target",
-		Commits: commits.Commits{
-			Commits: []commits.Commit{
-				{
-					Hash:      "1234567890abcdef1234567890abcdef12345678",
-					ShortHash: "1234567",
-				},
-				{
-					Hash:      "abcdef1234567890abcdef1234567890abcdef12",
-					ShortHash: "abcdef1",
-				},
-			},
-		},
-	}
-
-	// Target dir should be created before getting head
-	targetDir := filepath.Join(testDir, "test-target")
-	if err := os.MkdirAll(targetDir, 0o755); err != nil {
-		t.Fatalf("Failed to create target dir: %v", err)
-	}
-
-	// Create commit directories
-	commitDir1 := filepath.Join(targetDir, "1234567")
-	commitDir2 := filepath.Join(targetDir, "abcdef1")
-
-	if err := os.MkdirAll(commitDir1, 0o755); err != nil {
-		t.Fatalf("Failed to create commit dir 1: %v", err)
-	}
-
-	if err := os.MkdirAll(commitDir2, 0o755); err != nil {
-		t.Fatalf("Failed to create commit dir 2: %v", err)
-	}
-
-	// GetTargetHeadDir should return the latest commit (second one)
-	headDir, err := target.GetTargetHeadDir(testDir)
-	if err != nil {
-		t.Errorf("GetTargetHeadDir() error = %v", err)
-	}
-
-	if headDir != commitDir2 {
-		t.Errorf("GetTargetHeadDir() = %v, want %v", headDir, commitDir2)
-	}
-
-	// Test with no commits
-	emptyTarget := Target{Target: "empty-target"}
-
-	if err := os.MkdirAll(filepath.Join(testDir, "empty-target"), 0o755); err != nil {
-		t.Fatalf("Failed to create empty target dir: %v", err)
-	}
-
-	_, err = emptyTarget.GetTargetHeadDir(testDir)
-	if err == nil {
-		t.Errorf("GetTargetHeadDir() should fail with no commits")
+	if _, err := CreateTargetCommitDir(testDir, invalidCommit); err == nil {
+		t.Errorf("CreateTargetCommitDir() should fail with invalid commit")
 	}
 }

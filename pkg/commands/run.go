@@ -225,10 +225,7 @@ func (c *runCommand) getCompletionCommits(target, prefix string) []string {
 // Returns:
 //   - error: Any error encountered during the execution process
 func (c *runCommand) executeRun(target, commitHash string, args []string) error {
-	fsTarget := targets.Target{
-		Target:  target,
-		Commits: commits.Commits{},
-	}
+	fsTarget := targets.Target{Target: target}
 
 	targetRootDir, err := fsTarget.GetTargetRootDir(nigiriRoot)
 	if err != nil {
