@@ -8,25 +8,26 @@ import (
 )
 
 func setupTestDir(t *testing.T) string {
-	// Create a temporary directory for tests
-	tempDir, err := os.MkdirTemp("", "nigiri-dirutils-test")
-	if err != nil {
-		t.Fatalf("Failed to create temp directory: %v", err)
-	}
-	return tempDir
+	t.Helper()
+
+	return t.TempDir()
 }
 
 func cleanupTestDir(t *testing.T, dir string) {
+	t.Helper()
+
 	if err := os.RemoveAll(dir); err != nil {
 		t.Logf("Warning: Failed to clean up test directory: %v", err)
 	}
 }
 
 func createTestFiles(t *testing.T, baseDir string, files []string, dirs []string) {
+	t.Helper()
+
 	// Create directories first
 	for _, dir := range dirs {
 		dirPath := filepath.Join(baseDir, dir)
-		if err := os.MkdirAll(dirPath, 0755); err != nil {
+		if err := os.MkdirAll(dirPath, 0o755); err != nil {
 			t.Fatalf("Failed to create test directory %s: %v", dirPath, err)
 		}
 	}
@@ -35,10 +36,11 @@ func createTestFiles(t *testing.T, baseDir string, files []string, dirs []string
 	for _, file := range files {
 		filePath := filepath.Join(baseDir, file)
 		// Ensure parent directory exists
-		if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
 			t.Fatalf("Failed to create parent directory for %s: %v", filePath, err)
 		}
-		if err := os.WriteFile(filePath, []byte("test"), 0644); err != nil {
+
+		if err := os.WriteFile(filePath, []byte("test"), 0o644); err != nil {
 			t.Fatalf("Failed to create test file %s: %v", filePath, err)
 		}
 	}
@@ -65,12 +67,14 @@ func TestGetDirEntries(t *testing.T) {
 	// Debug: List what was actually created
 	entries, _ := os.ReadDir(testDir)
 	t.Logf("Created in testDir: %d entries", len(entries))
+
 	for _, e := range entries {
 		t.Logf("  - %s (isDir: %v)", e.Name(), e.IsDir())
 	}
 
 	subdirEntries, _ := os.ReadDir(filepath.Join(testDir, "subdir"))
 	t.Logf("Created in subdir: %d entries", len(subdirEntries))
+
 	for _, e := range subdirEntries {
 		t.Logf("  - %s (isDir: %v)", e.Name(), e.IsDir())
 	}
@@ -112,6 +116,7 @@ func TestGetDirEntries(t *testing.T) {
 
 			// Debug output
 			t.Logf("Filter: '%s', got %d entries, want %d", tt.filter, len(entries), tt.wantCount)
+
 			for _, e := range entries {
 				t.Logf("  - %s (isDir: %v)", e.Name, e.IsDir)
 			}
@@ -123,12 +128,15 @@ func TestGetDirEntries(t *testing.T) {
 			// Check if hidden files/dirs are included when using dot filter
 			if tt.filter == "." {
 				hasHidden := false
+
 				for _, entry := range entries {
 					if len(entry.Name) > 0 && entry.Name[0] == '.' {
 						hasHidden = true
+
 						break
 					}
 				}
+
 				if !hasHidden {
 					t.Errorf("GetDirEntries() with '.' filter should include hidden files/dirs")
 				}
@@ -200,12 +208,13 @@ func TestSortDirEntriesByName(t *testing.T) {
 	}
 }
 
-// Helper function to extract names for error reporting
+// Helper function to extract names for error reporting.
 func namesOf(entries []DirEntry) []string {
 	names := make([]string, len(entries))
 	for i, entry := range entries {
 		names[i] = entry.Name
 	}
+
 	return names
 }
 
@@ -227,12 +236,12 @@ func TestGetDirSize(t *testing.T) {
 	for _, file := range files {
 		filePath := filepath.Join(testDir, file.path)
 		// Ensure parent directory exists
-		if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
 			t.Fatalf("Failed to create directory: %v", err)
 		}
 		// Create file with specific size
 		data := make([]byte, file.size)
-		if err := os.WriteFile(filePath, data, 0644); err != nil {
+		if err := os.WriteFile(filePath, data, 0o644); err != nil {
 			t.Fatalf("Failed to create file: %v", err)
 		}
 	}
@@ -262,6 +271,7 @@ func TestEnsureDirExists(t *testing.T) {
 
 	// Test with non-existent directory
 	newDir := filepath.Join(testDir, "new-dir")
+
 	err := EnsureDirExists(newDir)
 	if err != nil {
 		t.Errorf("EnsureDirExists() error = %v", err)
@@ -296,7 +306,7 @@ func TestCleanOldDirs(t *testing.T) {
 
 	for _, dir := range dirs {
 		dirPath := filepath.Join(testDir, dir.name)
-		if err := os.MkdirAll(dirPath, 0755); err != nil {
+		if err := os.MkdirAll(dirPath, 0o755); err != nil {
 			t.Fatalf("Failed to create directory: %v", err)
 		}
 
@@ -316,9 +326,11 @@ func TestCleanOldDirs(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(testDir, "dir1")); !os.IsNotExist(err) {
 		t.Error("CleanOldDirs() failed to remove old directory by count")
 	}
+
 	if _, err := os.Stat(filepath.Join(testDir, "dir2")); os.IsNotExist(err) {
 		t.Error("CleanOldDirs() incorrectly removed dir2")
 	}
+
 	if _, err := os.Stat(filepath.Join(testDir, "dir3")); os.IsNotExist(err) {
 		t.Error("CleanOldDirs() incorrectly removed dir3")
 	}
@@ -330,7 +342,7 @@ func TestCleanOldDirs(t *testing.T) {
 	// Recreate test directories
 	for _, dir := range dirs {
 		dirPath := filepath.Join(testDir, dir.name)
-		if err := os.MkdirAll(dirPath, 0755); err != nil {
+		if err := os.MkdirAll(dirPath, 0o755); err != nil {
 			t.Fatalf("Failed to create directory: %v", err)
 		}
 
@@ -350,9 +362,11 @@ func TestCleanOldDirs(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(testDir, "dir1")); !os.IsNotExist(err) {
 		t.Error("CleanOldDirs() failed to remove old directory by age")
 	}
+
 	if _, err := os.Stat(filepath.Join(testDir, "dir2")); os.IsNotExist(err) {
 		t.Error("CleanOldDirs() incorrectly removed dir2")
 	}
+
 	if _, err := os.Stat(filepath.Join(testDir, "dir3")); os.IsNotExist(err) {
 		t.Error("CleanOldDirs() incorrectly removed dir3")
 	}

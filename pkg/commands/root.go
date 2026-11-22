@@ -1,3 +1,4 @@
+// Package commands implements the nigiri CLI commands.
 package commands
 
 import (
@@ -10,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// nigiriRoot is the default path for nigiri's data directory
+// nigiriRoot is the default path for nigiri's data directory.
 var nigiriRoot = defaultNigiriRoot()
 
 // cfgFileFlag holds the value of the global --config flag. When non-empty it
@@ -25,6 +26,7 @@ func defaultNigiriRoot() string {
 	if err != nil {
 		return ".nigiri"
 	}
+
 	return filepath.Join(homeDir, ".nigiri")
 }
 
@@ -35,6 +37,7 @@ func newConfigManager() *config.ConfigManager {
 	if cfgFileFlag != "" {
 		cm.Config.SetCfgFile(cfgFileFlag)
 	}
+
 	return cm
 }
 
@@ -46,17 +49,17 @@ type ExitCodeError struct {
 	Code int
 }
 
-// Error implements the error interface
+// Error implements the error interface.
 func (e *ExitCodeError) Error() string {
 	return fmt.Sprintf("target exited with status %d", e.Code)
 }
 
-// ExitCode returns the status the CLI should exit with
+// ExitCode returns the status the CLI should exit with.
 func (e *ExitCodeError) ExitCode() int {
 	return e.Code
 }
 
-// rootCommand represents the structure for the root command
+// rootCommand represents the structure for the root command.
 type rootCommand struct {
 	cmd *cobra.Command
 	log *log.Logger
@@ -81,7 +84,7 @@ It allows you to easily build, run, and manage different versions of upstream pr
 		// so the usage text must not be dumped on top of it.
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			return cmd.Help()
 		},
 	}
@@ -101,6 +104,7 @@ It allows you to easily build, run, and manage different versions of upstream pr
 
 	c.cmd = rootCmd
 	c.log = log.New(log.Writer(), "nigiri: ", log.LstdFlags)
+
 	return c
 }
 
@@ -110,5 +114,5 @@ It allows you to easily build, run, and manage different versions of upstream pr
 // Returns:
 //   - error: Any error encountered during command execution
 func (c *rootCommand) Execute() error {
-	return c.cmd.Execute()
+	return c.cmd.Execute() //nolint:wrapcheck // subcommand errors already carry their context
 }

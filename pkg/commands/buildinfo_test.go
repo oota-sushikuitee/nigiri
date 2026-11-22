@@ -12,6 +12,7 @@ import (
 
 func TestBuildTime(t *testing.T) {
 	t.Parallel()
+
 	recorded := time.Date(2024, 5, 4, 3, 2, 1, 0, time.UTC)
 	fallback := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
 
@@ -49,10 +50,12 @@ func TestBuildTime(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			dir := t.TempDir()
 			if tt.writeAny {
 				require.NoError(t, os.WriteFile(filepath.Join(dir, buildInfoFileName), []byte(tt.contents), 0o600))
 			}
+
 			assert.True(t, buildTime(dir, fallback).Equal(tt.want))
 		})
 	}

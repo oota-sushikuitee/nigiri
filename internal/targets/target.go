@@ -1,6 +1,8 @@
+// Package targets resolves the on-disk layout of build targets and their commits.
 package targets
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -33,17 +35,21 @@ type Target struct {
 //   - error: An error describing why the name is invalid, or nil if it is valid
 func ValidateTargetName(name string) error {
 	if name == "" {
-		return fmt.Errorf("target name must not be empty")
+		return errors.New("target name must not be empty")
 	}
+
 	if name == "." || name == ".." {
 		return fmt.Errorf("invalid target name %q: must be a single local path element", name)
 	}
+
 	if strings.ContainsAny(name, `/\`) {
 		return fmt.Errorf("invalid target name %q: must not contain path separators", name)
 	}
+
 	if !filepath.IsLocal(name) {
 		return fmt.Errorf("invalid target name %q: must be a single local path element", name)
 	}
+
 	return nil
 }
 
@@ -59,10 +65,12 @@ func (t *Target) GetTargetRootDir(nigiriRoot string) (string, error) {
 	if err := ValidateTargetName(t.Target); err != nil {
 		return "", err
 	}
+
 	fp := filepath.Join(nigiriRoot, t.Target)
 	if !dirutils.Exists(fp) {
 		return "", fmt.Errorf("target root does not exist: %s", fp)
 	}
+
 	return fp, nil
 }
 
@@ -78,13 +86,16 @@ func (t *Target) CreateTargetRootDir(nigiriRoot string) (string, error) {
 	if err := ValidateTargetName(t.Target); err != nil {
 		return "", err
 	}
+
 	fp := filepath.Join(nigiriRoot, t.Target)
 	if dirutils.Exists(fp) {
 		return "", fmt.Errorf("target root already exists: %s", fp)
 	}
-	if err := os.MkdirAll(fp, 0755); err != nil {
-		return "", err
+
+	if err := os.MkdirAll(fp, 0o755); err != nil {
+		return "", fmt.Errorf("failed to create directory %s: %w", fp, err)
 	}
+
 	return fp, nil
 }
 
@@ -100,12 +111,14 @@ func (t *Target) CreateTargetRootDirIfNotExist(nigiriRoot string) (string, error
 	if err := ValidateTargetName(t.Target); err != nil {
 		return "", err
 	}
+
 	fp := filepath.Join(nigiriRoot, t.Target)
 	if !dirutils.Exists(fp) {
-		if err := os.MkdirAll(fp, 0755); err != nil {
-			return "", err
+		if err := os.MkdirAll(fp, 0o755); err != nil {
+			return "", fmt.Errorf("failed to create directory %s: %w", fp, err)
 		}
 	}
+
 	return fp, nil
 }
 
@@ -123,6 +136,7 @@ func (t *Target) GetTargetHeadDir(nigiriRoot string) (string, error) {
 	}
 	// Get the latest commit
 	latestCommit := t.Commits.Commits[len(t.Commits.Commits)-1]
+
 	targetRoot, err := t.GetTargetRootDir(nigiriRoot)
 	if err != nil {
 		return "", err
@@ -141,6 +155,7 @@ func (t *Target) GetTargetHeadDir(nigiriRoot string) (string, error) {
 //   - bool: True if the commit directory exists, false otherwise
 func IsExistTargetCommitDir(targetRoot string, commit commits.Commit) bool {
 	fp := filepath.Join(targetRoot, commit.ShortHash)
+
 	return dirutils.Exists(fp)
 }
 
@@ -157,10 +172,12 @@ func GetTargetCommitDir(targetRoot string, commit commits.Commit) (string, error
 	if err := commit.Validate(); err != nil {
 		return "", err
 	}
+
 	fp := filepath.Join(targetRoot, commit.ShortHash)
 	if !dirutils.Exists(fp) {
 		return "", fmt.Errorf("commit directory does not exist: %s", fp)
 	}
+
 	return fp, nil
 }
 
@@ -177,12 +194,15 @@ func CreateTargetCommitDir(targetRoot string, commit commits.Commit) (string, er
 	if err := commit.Validate(); err != nil {
 		return "", err
 	}
+
 	fp := filepath.Join(targetRoot, commit.ShortHash)
 	if dirutils.Exists(fp) {
 		return "", fmt.Errorf("commit directory already exists: %s", fp)
 	}
-	if err := os.MkdirAll(fp, 0755); err != nil {
-		return "", err
+
+	if err := os.MkdirAll(fp, 0o755); err != nil {
+		return "", fmt.Errorf("failed to create directory %s: %w", fp, err)
 	}
+
 	return fp, nil
 }

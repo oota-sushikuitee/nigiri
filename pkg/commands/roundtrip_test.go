@@ -19,15 +19,17 @@ import (
 // initSourceRepo creates a local git repository holding an executable script
 // named after the "sample" target, and returns the repository path and the
 // commit hash of its single commit.
-func initSourceRepo(t *testing.T, script string) (repoDir, head string) {
+func initSourceRepo(t *testing.T, script string) (string, string) {
 	t.Helper()
-	repoDir = t.TempDir()
+
+	repoDir := t.TempDir()
 	repo, err := git.PlainInit(repoDir, false)
 	require.NoError(t, err)
 	worktree, err := repo.Worktree()
 	require.NoError(t, err)
 
 	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "sample"), []byte(script), 0o755))
+
 	_, err = worktree.Add("sample")
 	require.NoError(t, err)
 
@@ -35,6 +37,7 @@ func initSourceRepo(t *testing.T, script string) (repoDir, head string) {
 		Author: &object.Signature{Name: "test", Email: "test@example.com", When: time.Now()},
 	})
 	require.NoError(t, err)
+
 	return repoDir, hash.String()
 }
 
@@ -60,6 +63,7 @@ func TestBuildRunRoundTrip_ExtractsSourceIntoSrcDir(t *testing.T) {
 	require.NoDirExists(t, filepath.Join(commitDir, "src"))
 
 	var out bytes.Buffer
+
 	run := newRunCommand()
 	run.cmd.SetOut(&out)
 	require.NoError(t, run.executeRun("sample", "", nil))
@@ -73,11 +77,14 @@ func TestBuildRunRoundTrip_ExtractsSourceIntoSrcDir(t *testing.T) {
 // metadata records the given build date.
 func writeFakeBuild(t *testing.T, shortHash string, built time.Time, label string) string {
 	t.Helper()
+
 	commitDir := filepath.Join(nigiriRoot, "sample", shortHash)
 	require.NoError(t, os.MkdirAll(commitDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(commitDir, "bin"), []byte("#!/bin/sh\necho "+label+"\n"), 0o755))
+
 	metadata := "Target: sample\n" + buildDateField + " " + built.Format(time.RFC3339) + "\n"
 	require.NoError(t, os.WriteFile(filepath.Join(commitDir, buildInfoFileName), []byte(metadata), 0o600))
+
 	return commitDir
 }
 
@@ -99,6 +106,7 @@ func TestExecuteRun_LatestUsesRecordedBuildDate(t *testing.T) {
 	require.NoError(t, os.Chtimes(older, now, now))
 
 	var out bytes.Buffer
+
 	run := newRunCommand()
 	run.cmd.SetOut(&out)
 	require.NoError(t, run.executeRun("sample", "", nil))
@@ -124,6 +132,7 @@ func TestExecuteRun_PropagatesTargetExitCode(t *testing.T) {
 	run.cmd.SetErr(io.Discard)
 
 	err := run.executeRun("sample", "abcdef1", nil)
+
 	var exitErr *ExitCodeError
 	require.ErrorAs(t, err, &exitErr)
 	assert.Equal(t, 3, exitErr.ExitCode())

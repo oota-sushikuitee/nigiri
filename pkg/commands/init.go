@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// initCommand represents the structure for the init command
+// initCommand represents the structure for the init command.
 type initCommand struct {
 	cmd *cobra.Command
 }
@@ -24,11 +24,12 @@ func newInitCommand() *initCommand {
 		Use:   "init",
 		Short: "Initialize nigiri configuration",
 		Long:  `Create a new nigiri configuration file in the ~/.nigiri directory with default settings.`,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			return c.executeInit()
 		},
 	}
 	c.cmd = cmd
+
 	return c
 }
 
@@ -38,7 +39,7 @@ func newInitCommand() *initCommand {
 //   - error: Any error encountered during the initialization process
 func (c *initCommand) executeInit() error {
 	// Create nigiri root directory if it doesn't exist
-	if err := os.MkdirAll(nigiriRoot, 0755); err != nil {
+	if err := os.MkdirAll(nigiriRoot, 0o755); err != nil {
 		return logger.CreateErrorf("failed to create nigiri root directory: %w", err)
 	}
 
@@ -49,12 +50,15 @@ func (c *initCommand) executeInit() error {
 	if _, err := os.Stat(configFilePath); err == nil {
 		c.cmd.Printf("Configuration file already exists at %s\n", configFilePath)
 		c.cmd.Print("Do you want to overwrite it? (y/n): ")
+
 		var confirm string
 		if err := logger.ReadInput(&confirm); err != nil {
 			return logger.CreateErrorf("failed to read confirmation: %w", err)
 		}
+
 		if confirm != "y" && confirm != "Y" {
 			c.cmd.Println("Initialization cancelled.")
+
 			return nil
 		}
 	}
@@ -102,7 +106,7 @@ defaults:
 `
 
 	// Write the configuration file
-	if err := os.WriteFile(configFilePath, []byte(sampleConfig), 0644); err != nil {
+	if err := os.WriteFile(configFilePath, []byte(sampleConfig), 0o644); err != nil {
 		return logger.CreateErrorf("failed to write configuration file: %w", err)
 	}
 

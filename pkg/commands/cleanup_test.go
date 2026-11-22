@@ -2,7 +2,6 @@ package commands
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -13,16 +12,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// TestCleanupCommand tests the cleanup command functionality
+// TestCleanupCommand tests the cleanup command functionality.
 func TestCleanupCommand(t *testing.T) {
 	// Set up a custom test directory for nigiriRoot
 	originalNigiriRoot := nigiriRoot
-	tempDir, err := os.MkdirTemp("", "nigiri-cleanup-test")
-	if err != nil {
-		t.Fatalf("Failed to create temp directory: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
+
+	tempDir := t.TempDir()
+
 	defer func() { nigiriRoot = originalNigiriRoot }()
+
 	nigiriRoot = tempDir
 
 	// Create test targets
@@ -31,6 +29,7 @@ func TestCleanupCommand(t *testing.T) {
 	t.Run("Show disk usage", func(t *testing.T) {
 		// Create a buffer to capture command output
 		var stdout bytes.Buffer
+
 		cmd := setupCleanupTestCommand(&stdout, nil)
 
 		// Execute the command
@@ -44,9 +43,11 @@ func TestCleanupCommand(t *testing.T) {
 		if !strings.Contains(output, "Disk usage by target") {
 			t.Errorf("Expected disk usage header, got: %s", output)
 		}
+
 		if !strings.Contains(output, "test-target-1:") {
 			t.Errorf("Expected test target in output, got: %s", output)
 		}
+
 		if !strings.Contains(output, "Total disk usage:") {
 			t.Errorf("Expected total disk usage in output, got: %s", output)
 		}
@@ -55,6 +56,7 @@ func TestCleanupCommand(t *testing.T) {
 	t.Run("Cleanup with dry run", func(t *testing.T) {
 		// Create a buffer to capture command output
 		var stdout bytes.Buffer
+
 		cmd := setupCleanupTestCommand(&stdout, nil, "--dry-run", "test-target-1")
 
 		// Execute the command
@@ -124,91 +126,56 @@ func TestCleanupCommand(t *testing.T) {
 		}
 	})
 
-	t.Run("Cleanup with user confirmation - yes", func(t *testing.T) {
-		// Reset test targets
-		os.RemoveAll(tempDir)
-		setupTestTargets(t, tempDir)
+	confirmationTests := []struct {
+		name          string
+		input         string
+		wantMessage   string
+		wantRemaining int
+	}{
+		{name: "yes", input: "y\n", wantMessage: "builds removed successfully", wantRemaining: 2},
+		{name: "no", input: "n\n", wantMessage: "Cleanup cancelled", wantRemaining: 7},
+	}
+	for _, tt := range confirmationTests {
+		t.Run("Cleanup with user confirmation - "+tt.name, func(t *testing.T) {
+			// Reset test targets
+			os.RemoveAll(tempDir)
+			setupTestTargets(t, tempDir)
 
-		// Mock user input
-		oldStdin := os.Stdin
-		r, w, _ := os.Pipe()
-		os.Stdin = r
-		defer func() { os.Stdin = oldStdin }()
+			// Mock user input
+			oldStdin := os.Stdin
+			r, w, _ := os.Pipe()
 
-		// Create input in a goroutine
-		go func() {
-			defer w.Close()
-			w.Write([]byte("y\n"))
-		}()
+			os.Stdin = r
+			defer func() { os.Stdin = oldStdin }()
 
-		// Create a buffer to capture command output
-		var stdout bytes.Buffer
-		cmd := setupCleanupTestCommand(&stdout, r, "--max-builds", "2", "test-target-1")
+			go func() {
+				defer w.Close()
 
-		// Execute the command
-		err := cmd.Execute()
-		if err != nil {
-			t.Fatalf("Execute failed: %v", err)
-		}
+				w.WriteString(tt.input)
+			}()
 
-		// Verify output
-		output := stdout.String()
-		if !strings.Contains(output, "Do you want to continue?") {
-			t.Errorf("Expected confirmation prompt, got: %s", output)
-		}
-		if !strings.Contains(output, "builds removed successfully") {
-			t.Errorf("Expected success message, got: %s", output)
-		}
+			var stdout bytes.Buffer
 
-		// Verify only 2 builds remain
-		builds, _ := filepath.Glob(filepath.Join(tempDir, "test-target-1", "*"))
-		if len(builds) != 2 {
-			t.Errorf("Expected 2 builds to remain, got %d", len(builds))
-		}
-	})
+			cmd := setupCleanupTestCommand(&stdout, r, "--max-builds", "2", "test-target-1")
+			if err := cmd.Execute(); err != nil {
+				t.Fatalf("Execute failed: %v", err)
+			}
 
-	t.Run("Cleanup with user confirmation - no", func(t *testing.T) {
-		// Reset test targets
-		os.RemoveAll(tempDir)
-		setupTestTargets(t, tempDir)
+			output := stdout.String()
+			if !strings.Contains(output, "Do you want to continue?") {
+				t.Errorf("Expected confirmation prompt, got: %s", output)
+			}
 
-		// Mock user input
-		oldStdin := os.Stdin
-		r, w, _ := os.Pipe()
-		os.Stdin = r
-		defer func() { os.Stdin = oldStdin }()
+			if !strings.Contains(output, tt.wantMessage) {
+				t.Errorf("Expected %q, got: %s", tt.wantMessage, output)
+			}
 
-		// Create input in a goroutine
-		go func() {
-			defer w.Close()
-			w.Write([]byte("n\n"))
-		}()
-
-		// Create a buffer to capture command output
-		var stdout bytes.Buffer
-		cmd := setupCleanupTestCommand(&stdout, r, "--max-builds", "2", "test-target-1")
-
-		// Execute the command
-		err := cmd.Execute()
-		if err != nil {
-			t.Fatalf("Execute failed: %v", err)
-		}
-
-		// Verify output
-		output := stdout.String()
-		if !strings.Contains(output, "Do you want to continue?") {
-			t.Errorf("Expected confirmation prompt, got: %s", output)
-		}
-		if !strings.Contains(output, "Cleanup cancelled") {
-			t.Errorf("Expected cancellation message, got: %s", output)
-		}
-
-		// Verify all builds remain
-		builds, _ := filepath.Glob(filepath.Join(tempDir, "test-target-1", "*"))
-		if len(builds) != 7 {
-			t.Errorf("Expected 7 builds to remain, got %d", len(builds))
-		}
-	})
+			builds, _ := filepath.Glob(filepath.Join(tempDir, "test-target-1", "*"))
+			if len(builds) != tt.wantRemaining {
+				t.Errorf("Expected %d builds to remain, got %d", tt.wantRemaining, len(builds))
+			}
+		})
+	}
 
 	t.Run("Cleanup all targets", func(t *testing.T) {
 		// Reset test targets
@@ -217,6 +184,7 @@ func TestCleanupCommand(t *testing.T) {
 
 		// Create a buffer to capture command output
 		var stdout bytes.Buffer
+
 		cmd := setupCleanupTestCommand(&stdout, nil, "--yes", "--all", "--max-builds", "2")
 
 		// Execute the command
@@ -239,6 +207,7 @@ func TestCleanupCommand(t *testing.T) {
 
 	t.Run("Cleanup non-existent target", func(t *testing.T) {
 		var stdout bytes.Buffer
+
 		cmd := setupCleanupTestCommand(&stdout, nil, "non-existent-target")
 
 		// Execute the command
@@ -246,6 +215,7 @@ func TestCleanupCommand(t *testing.T) {
 		if err == nil {
 			t.Fatal("Expected error for non-existent target, got nil")
 		}
+
 		if !strings.Contains(err.Error(), "not found") {
 			t.Errorf("Expected 'not found' error, got: %v", err)
 		}
@@ -254,7 +224,7 @@ func TestCleanupCommand(t *testing.T) {
 	t.Run("Cleanup with no builds to remove", func(t *testing.T) {
 		// Create a new target with only 1 build
 		targetDir := filepath.Join(tempDir, "empty-target")
-		os.MkdirAll(targetDir, 0755)
+		os.MkdirAll(targetDir, 0o755)
 		createTestBuild(t, targetDir, "build-1", time.Now())
 
 		var stdout bytes.Buffer
@@ -277,9 +247,10 @@ func TestCleanupCommand(t *testing.T) {
 	t.Run("Cleanup with no targets found", func(t *testing.T) {
 		// Remove all targets
 		os.RemoveAll(tempDir)
-		os.MkdirAll(tempDir, 0755)
+		os.MkdirAll(tempDir, 0o755)
 
 		var stdout bytes.Buffer
+
 		cmd := setupCleanupTestCommand(&stdout, nil, "--all")
 
 		// Execute the command
@@ -296,22 +267,27 @@ func TestCleanupCommand(t *testing.T) {
 	})
 }
 
-// setupCleanupTestCommand creates a configured cleanup command for testing with arguments
+// setupCleanupTestCommand creates a configured cleanup command for testing with arguments.
 func setupCleanupTestCommand(out io.Writer, in io.Reader, args ...string) *cobra.Command {
 	cmd := newCleanupCommand().cmd
 	cmd.SetOut(out)
+
 	if in != nil {
 		cmd.SetIn(in)
 	}
+
 	cmd.SetArgs(args)
+
 	return cmd
 }
 
-// setupTestTargets creates test targets and builds with different dates
+// setupTestTargets creates test targets and builds with different dates.
 func setupTestTargets(t *testing.T, rootDir string) {
+	t.Helper()
+
 	// Test target 1 - create 7 builds with different dates
 	target1Dir := filepath.Join(rootDir, "test-target-1")
-	os.MkdirAll(target1Dir, 0755)
+	os.MkdirAll(target1Dir, 0o755)
 
 	now := time.Now()
 	// Create builds with different dates - newest first to match SortDirEntriesByTime behavior
@@ -325,7 +301,7 @@ func setupTestTargets(t *testing.T, rootDir string) {
 
 	// Test target 2 - create 7 builds with different dates
 	target2Dir := filepath.Join(rootDir, "test-target-2")
-	os.MkdirAll(target2Dir, 0755)
+	os.MkdirAll(target2Dir, 0o755)
 
 	createTestBuild(t, target2Dir, "build-newest", now)
 	createTestBuild(t, target2Dir, "build-2", now.AddDate(0, 0, -3))
@@ -336,15 +312,18 @@ func setupTestTargets(t *testing.T, rootDir string) {
 	createTestBuild(t, target2Dir, "build-oldest", now.AddDate(0, 0, -18))
 }
 
-// createTestBuild creates a test build directory with some content and sets its modification time
+// createTestBuild creates a test build directory with some content and sets its modification time.
 func createTestBuild(t *testing.T, targetDir string, buildName string, modTime time.Time) {
+	t.Helper()
+
 	buildDir := filepath.Join(targetDir, buildName)
-	os.MkdirAll(buildDir, 0755)
+	os.MkdirAll(buildDir, 0o755)
 
 	// Create a dummy file to give the directory some size
 	dummyFile := filepath.Join(buildDir, "dummy.txt")
-	dummyContent := fmt.Sprintf("This is a dummy file for build %s", buildName)
-	err := os.WriteFile(dummyFile, []byte(dummyContent), 0644)
+	dummyContent := "This is a dummy file for build " + buildName
+
+	err := os.WriteFile(dummyFile, []byte(dummyContent), 0o644)
 	if err != nil {
 		t.Fatalf("Failed to create dummy file: %v", err)
 	}

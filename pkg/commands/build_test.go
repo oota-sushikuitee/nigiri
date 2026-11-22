@@ -45,8 +45,11 @@ func TestExecuteBuild_RemovesCommitDirOnFailure(t *testing.T) {
 
 func TestSelectBuildCommand(t *testing.T) {
 	t.Parallel()
+
 	target := cfgmodel.BuildCommand{Linux: "make linux", Darwin: "make darwin"}
-	defaults := cfgmodel.BuildCommand{Linux: "make default-linux", Windows: "make default-windows", Darwin: "make default-darwin"}
+	defaults := cfgmodel.BuildCommand{
+		Linux: "make default-linux", Windows: "make default-windows", Darwin: "make default-darwin",
+	}
 
 	tests := []struct {
 		name     string
@@ -66,12 +69,15 @@ func TestSelectBuildCommand(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			got, err := selectBuildCommand(tt.target, tt.defaults, tt.goos)
 			if tt.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.wantErr)
+
 				return
 			}
+
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
 		})
@@ -80,6 +86,7 @@ func TestSelectBuildCommand(t *testing.T) {
 
 func TestResolveCloneDepth(t *testing.T) {
 	t.Parallel()
+
 	tests := []struct {
 		name   string
 		depth  int

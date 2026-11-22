@@ -1,3 +1,4 @@
+// Package vcsutils clones and checks out source repositories.
 package vcsutils
 
 import (
@@ -25,19 +26,22 @@ type Git struct {
 	HEAD   string
 }
 
-// AuthMethod represents the authentication method
+// tokenAuthUsername is the username GitHub expects for HTTPS token authentication.
+const tokenAuthUsername = "x-access-token"
+
+// AuthMethod represents the authentication method.
 type AuthMethod string
 
 const (
-	// AuthToken uses a GitHub token for authentication
+	// AuthToken uses a GitHub token for authentication.
 	AuthToken AuthMethod = "token"
-	// AuthSSH uses SSH keys for authentication
+	// AuthSSH uses SSH keys for authentication.
 	AuthSSH AuthMethod = "ssh"
-	// AuthNone uses no authentication (for public repositories)
+	// AuthNone uses no authentication (for public repositories).
 	AuthNone AuthMethod = "none"
 )
 
-// Options represents git operation options
+// Options represents git operation options.
 type Options struct {
 	// AuthMethod specifies the authentication method to use
 	AuthMethod AuthMethod
@@ -51,7 +55,7 @@ type Options struct {
 	UnshallowIfNeeded bool
 }
 
-// getGitHubToken tries to get a GitHub token from various sources
+// getGitHubToken tries to get a GitHub token from various sources.
 func getGitHubToken() (string, error) {
 	// First check environment variable
 	token := os.Getenv("GITHUB_TOKEN")
@@ -61,6 +65,7 @@ func getGitHubToken() (string, error) {
 
 	// Then try gh cli
 	cmd := exec.CommandContext(context.Background(), "gh", "auth", "token")
+
 	output, err := cmd.Output()
 	if err == nil {
 		token = strings.TrimSpace(string(output))
@@ -70,7 +75,7 @@ func getGitHubToken() (string, error) {
 	}
 
 	// Could add more methods here (like reading from ~/.netrc or other sources)
-	return "", fmt.Errorf("no GitHub token found, set GITHUB_TOKEN environment variable or login with 'gh auth login'")
+	return "", errors.New("no GitHub token found, set GITHUB_TOKEN environment variable or login with 'gh auth login'")
 }
 
 // normalizeCloneDepth maps a requested clone depth to the value passed to go-git.
@@ -80,6 +85,7 @@ func normalizeCloneDepth(depth int) int {
 	if depth < 0 {
 		return 0
 	}
+
 	return depth
 }
 
@@ -117,6 +123,7 @@ func (g *Git) Clone(cloneDir string, opts Options) error {
 		token := opts.Token
 		if token == "" {
 			var err error
+
 			token, err = getGitHubToken()
 			if err != nil {
 				return err
@@ -124,7 +131,7 @@ func (g *Git) Clone(cloneDir string, opts Options) error {
 		}
 
 		cloneOpts.Auth = &githttp.BasicAuth{
-			Username: "x-access-token", // This is what GitHub expects for token auth
+			Username: tokenAuthUsername,
 			Password: token,
 		}
 	}
@@ -136,7 +143,7 @@ func (g *Git) Clone(cloneDir string, opts Options) error {
 
 	// Create destination directory if it doesn't exist
 	if _, err := os.Stat(cloneDir); os.IsNotExist(err) {
-		if err := os.MkdirAll(cloneDir, 0755); err != nil {
+		if err := os.MkdirAll(cloneDir, 0o755); err != nil {
 			return fmt.Errorf("failed to create directory %s: %w", cloneDir, err)
 		}
 	}
@@ -149,7 +156,7 @@ func (g *Git) Clone(cloneDir string, opts Options) error {
 	if err != nil && authMethod == AuthNone && cloneOpts.Auth == nil && isAuthRequiredError(err) {
 		if token, tokenErr := getGitHubToken(); tokenErr == nil {
 			cloneOpts.Auth = &githttp.BasicAuth{
-				Username: "x-access-token",
+				Username: tokenAuthUsername,
 				Password: token,
 			}
 			// A failed clone may leave a partially initialized directory;
@@ -164,6 +171,7 @@ func (g *Git) Clone(cloneDir string, opts Options) error {
 		if strings.Contains(err.Error(), "already exists") {
 			return fmt.Errorf("destination path already exists and is not empty: %s", cloneDir)
 		}
+
 		return fmt.Errorf("git clone failed: %w", err)
 	}
 
@@ -172,7 +180,9 @@ func (g *Git) Clone(cloneDir string, opts Options) error {
 	if err != nil {
 		return fmt.Errorf("failed to get HEAD reference: %w", err)
 	}
+
 	g.HEAD = ref.Hash().String()
+
 	return nil
 }
 
@@ -183,11 +193,14 @@ func isAuthRequiredError(err error) bool {
 	if err == nil {
 		return false
 	}
+
 	if errors.Is(err, transport.ErrAuthenticationRequired) ||
 		errors.Is(err, transport.ErrAuthorizationFailed) {
 		return true
 	}
+
 	msg := strings.ToLower(err.Error())
+
 	return strings.Contains(msg, "authentication required") ||
 		strings.Contains(msg, "authorization failed") ||
 		strings.Contains(msg, "authentication")
@@ -215,7 +228,7 @@ func (g *Git) GetDefaultBranchRemoteHead(defaultBranch string) error {
 		token, tokenErr := getGitHubToken()
 		if tokenErr == nil {
 			auth := &githttp.BasicAuth{
-				Username: "x-access-token",
+				Username: tokenAuthUsername,
 				Password: token,
 			}
 			refs, err = remote.List(&git.ListOptions{Auth: auth})
@@ -226,6 +239,7 @@ func (g *Git) GetDefaultBranchRemoteHead(defaultBranch string) error {
 		if strings.Contains(err.Error(), "authentication") {
 			return fmt.Errorf("authentication failed: %w", err)
 		}
+
 		return fmt.Errorf("failed to list remote references: %w", err)
 	}
 
@@ -233,15 +247,17 @@ func (g *Git) GetDefaultBranchRemoteHead(defaultBranch string) error {
 	for _, ref := range refs {
 		if ref.Name().IsBranch() && ref.Name().Short() == defaultBranch {
 			g.HEAD = ref.Hash().String()
+
 			return nil
 		}
 	}
 
 	// If not found, try with refs/heads/ prefix
-	branchRefName := plumbing.ReferenceName(fmt.Sprintf("refs/heads/%s", defaultBranch))
+	branchRefName := plumbing.ReferenceName("refs/heads/" + defaultBranch)
 	for _, ref := range refs {
 		if ref.Name() == branchRefName {
 			g.HEAD = ref.Hash().String()
+
 			return nil
 		}
 	}
@@ -250,6 +266,7 @@ func (g *Git) GetDefaultBranchRemoteHead(defaultBranch string) error {
 	for _, ref := range refs {
 		if ref.Name().String() == "HEAD" {
 			g.HEAD = ref.Hash().String()
+
 			return nil
 		}
 	}
@@ -286,6 +303,7 @@ func (g *Git) Checkout(repoDir string, ref string) error {
 		if resolveErr != nil {
 			return fmt.Errorf("failed to resolve reference '%s': %w", ref, resolveErr)
 		}
+
 		if err := w.Checkout(&git.CheckoutOptions{Hash: *hash}); err != nil {
 			return fmt.Errorf("failed to checkout reference '%s': %w", ref, err)
 		}

@@ -32,16 +32,20 @@ func buildTime(commitDir string, fallback time.Time) time.Time {
 	if err != nil {
 		return fallback
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+
+	for line := range strings.SplitSeq(string(data), "\n") {
 		value, found := strings.CutPrefix(strings.TrimSpace(line), buildDateField)
 		if !found {
 			continue
 		}
+
 		recorded, err := time.Parse(time.RFC3339, strings.TrimSpace(value))
 		if err != nil {
 			return fallback
 		}
+
 		return recorded
 	}
+
 	return fallback
 }

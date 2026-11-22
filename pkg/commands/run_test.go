@@ -29,6 +29,7 @@ func TestExecuteRun_TargetNotBuilt(t *testing.T) {
 
 func TestParseRunArgs(t *testing.T) {
 	t.Parallel()
+
 	tests := []struct {
 		name       string
 		args       []string
@@ -89,11 +90,14 @@ func TestParseRunArgs(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
 			inv, err := parseRunArgs(tt.args)
 			if tt.wantErr {
 				require.Error(t, err)
+
 				return
 			}
+
 			require.NoError(t, err)
 			assert.Equal(t, tt.target, inv.target)
 			assert.Equal(t, tt.commitHash, inv.commitHash)
@@ -106,17 +110,27 @@ func TestParseRunArgs(t *testing.T) {
 
 func TestCommitDirMatches(t *testing.T) {
 	t.Parallel()
+
 	tests := []struct {
 		name       string
 		dirName    string
 		commitHash string
 		want       bool
 	}{
-		{name: "full hash matches short directory name", dirName: "abcdef1", commitHash: "abcdef1234567890abcdef1234567890abcdef12", want: true},
+		{
+			name:    "full hash matches short directory name",
+			dirName: "abcdef1", commitHash: "abcdef1234567890abcdef1234567890abcdef12", want: true,
+		},
 		{name: "short hash matches directory name", dirName: "abcdef1", commitHash: "abcdef1", want: true},
 		{name: "longer directory name matches shorter query", dirName: "abcdef1234", commitHash: "abcdef1", want: true},
-		{name: "different hash does not match", dirName: "abcdef1", commitHash: "1234567890abcdef1234567890abcdef12345678", want: false},
-		{name: "full hash differing after the short prefix does not match", dirName: "abcdef1", commitHash: "abcdef0234567890abcdef1234567890abcdef12", want: false},
+		{
+			name:    "different hash does not match",
+			dirName: "abcdef1", commitHash: "1234567890abcdef1234567890abcdef12345678", want: false,
+		},
+		{
+			name:    "full hash differing after the short prefix does not match",
+			dirName: "abcdef1", commitHash: "abcdef0234567890abcdef1234567890abcdef12", want: false,
+		},
 		{name: "empty directory name does not match", dirName: "", commitHash: "abcdef1", want: false},
 		{name: "empty hash does not match", dirName: "abcdef1", commitHash: "", want: false},
 	}

@@ -35,50 +35,25 @@ type buildCommandConfig struct {
 	BinaryPath string `yaml:"binary-path,omitempty"`
 }
 
-// ConfigManager handles the reading and writing of configuration files
+// ConfigManager handles the reading and writing of configuration files.
 type ConfigManager struct {
 	Config *config.Config
 }
 
-// NewConfigManager creates a new ConfigManager with default configuration
+// NewConfigManager creates a new ConfigManager with default configuration.
 func NewConfigManager() *ConfigManager {
 	cfg := config.NewConfig()
+
 	homeDir, err := os.UserHomeDir()
 	if err == nil {
 		cfg.SetCfgDir(filepath.Join(homeDir, ".nigiri"))
 	} else {
 		cfg.SetCfgDir(".")
 	}
+
 	return &ConfigManager{
 		Config: cfg,
 	}
-}
-
-// configFilePath resolves the configuration file to load: the explicit
-// --config path when set, otherwise the first of .nigiri.yaml / .nigiri.yml
-// found in the configuration directory.
-func (cm *ConfigManager) configFilePath() (string, error) {
-	if cfgFile := cm.Config.GetCfgFile(); cfgFile != "" {
-		return cfgFile, nil
-	}
-
-	cfgDir := cm.Config.GetCfgDir()
-	if cfgDir == "" {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("could not determine home directory: %w", err)
-		}
-		cfgDir = filepath.Join(homeDir, ".nigiri")
-		cm.Config.SetCfgDir(cfgDir)
-	}
-
-	for _, name := range []string{".nigiri.yaml", ".nigiri.yml"} {
-		candidate := filepath.Join(cfgDir, name)
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate, nil
-		}
-	}
-	return "", fmt.Errorf("failed to read config file: no .nigiri.yaml or .nigiri.yml found in %s", cfgDir)
 }
 
 // LoadCfgFile loads the configuration file. When an explicit config file path
@@ -110,6 +85,7 @@ func (cm *ConfigManager) LoadCfgFile() error {
 		if source == "" {
 			source = t.Sources
 		}
+
 		cm.Config.Targets[name] = config.Target{
 			Sources:          source,
 			DefaultBranch:    t.DefaultBranch,
@@ -134,7 +110,7 @@ func (cm *ConfigManager) LoadCfgFile() error {
 	return nil
 }
 
-// SaveCfgFile saves the configuration to the configuration file
+// SaveCfgFile saves the configuration to the configuration file.
 func (cm *ConfigManager) SaveCfgFile() error {
 	cfgDir := cm.Config.GetCfgDir()
 
@@ -172,10 +148,40 @@ func (cm *ConfigManager) SaveCfgFile() error {
 	if err := os.WriteFile(configFile, data, 0o644); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
+
 	return nil
 }
 
-// GetConfig returns the configuration
+// GetConfig returns the configuration.
 func (cm *ConfigManager) GetConfig() *config.Config {
 	return cm.Config
+}
+
+// configFilePath resolves the configuration file to load: the explicit
+// --config path when set, otherwise the first of .nigiri.yaml / .nigiri.yml
+// found in the configuration directory.
+func (cm *ConfigManager) configFilePath() (string, error) {
+	if cfgFile := cm.Config.GetCfgFile(); cfgFile != "" {
+		return cfgFile, nil
+	}
+
+	cfgDir := cm.Config.GetCfgDir()
+	if cfgDir == "" {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("could not determine home directory: %w", err)
+		}
+
+		cfgDir = filepath.Join(homeDir, ".nigiri")
+		cm.Config.SetCfgDir(cfgDir)
+	}
+
+	for _, name := range []string{".nigiri.yaml", ".nigiri.yml"} {
+		candidate := filepath.Join(cfgDir, name)
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		}
+	}
+
+	return "", fmt.Errorf("failed to read config file: no .nigiri.yaml or .nigiri.yml found in %s", cfgDir)
 }

@@ -2,30 +2,66 @@ version: "2"
 run:
   allow-parallel-runners: true
 linters:
-  default: none
-  enable:
-    - bodyclose
-    - errcheck
-    - gocritic
-    - govet
-    - ineffassign
-    - noctx
-    - staticcheck
-    - unused
+  default: all
+  disable:
+    # Complexity limits: flagged functions (executeBuild, executeRun, ...) need a structural split, tracked separately.
+    - cyclop
+    - funlen
+    - gocognit
+    - gocyclo
+    - maintidx
+    - nestif
+    # Needs a project-specific import allow/deny list; dependencies are reviewed through go.mod.
+    - depguard
+    # Partial struct literals relying on zero values are idiomatic Go.
+    - exhaustruct
+    - exhaustruct_v5
+    # Version info is injected via -ldflags; commands and logger keep package-level state by design.
+    - gochecknoglobals
+    # Deprecated in favour of gomodguard_v2, which needs the same allow/deny list as depguard.
+    - gomodguard
+    # Sentinel errors would add exported API without a consumer: the CLI only prints errors.
+    - err113
+    # Forbids the scoped `if err := f(); err != nil` form recommended by Effective Go.
+    - noinlineerr
+    # Commands and logger tests mutate package-level state and the process cwd, so they cannot run in parallel.
+    - paralleltest
+    # YAML keys are the user-facing .nigiri.yml format; renaming them would break existing configs.
+    - tagliatelle
+    # Tests exercise unexported helpers, so they live in the package under test.
+    - testpackage
+    # Short names in short scopes follow Go Code Review Comments.
+    - varnamelen
+    # Deprecated in favour of wsl_v5.
+    - wsl
   settings:
     govet:
       disable:
         - shadow
       enable-all: true
+    gosec:
+      excludes:
+        # Duplicates errcheck.
+        - G104
+        # Build and config files under the user's nigiri root are not secrets; 0755/0644 are intended.
+        - G301
+        - G302
+        - G306
+    mnd:
+      ignored-functions:
+        - ^os\.(Mkdir|MkdirAll|WriteFile|Chmod)$
+        - ^\(\*os\.Root\)\.MkdirAll$
     staticcheck:
       checks:
+        - all
         - -SA1006
+    wrapcheck:
+      ignore-package-globs:
+        - github.com/oota-sushikuitee/nigiri/*
   exclusions:
     generated: lax
     presets:
-      - comments
       - common-false-positives
-      - legacy
       - std-error-handling
     rules:
       - linters:
@@ -33,12 +69,21 @@ linters:
           - govet
           - noctx
         path: _test\.go
+      # Repeated fixture literals read better inline in table-driven tests.
+      - linters:
+          - goconst
+        path: _test\.go
+      # Renaming exported pkg/ identifiers would break importers of the module.
+      - linters:
+          - revive
+        text: "stutters|unexported-return"
     paths:
       - third_party$
       - builtin$
       - examples$
 formatters:
   enable:
+    - gofumpt
     - goimports
   exclusions:
     generated: lax

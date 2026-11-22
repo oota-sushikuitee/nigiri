@@ -20,6 +20,7 @@ func TestNewRemoveCommand(t *testing.T) {
 func newTestRemoveCommand() *removeCommand {
 	cmd := newRemoveCommand()
 	cmd.cmd.SetOut(io.Discard)
+
 	return cmd
 }
 
@@ -27,10 +28,12 @@ func newTestRemoveCommand() *removeCommand {
 // returns the target root.
 func makeBuildDirs(t *testing.T, shortHashes ...string) string {
 	t.Helper()
+
 	targetRoot := filepath.Join(nigiriRoot, "sample")
 	for _, hash := range shortHashes {
 		require.NoError(t, os.MkdirAll(filepath.Join(targetRoot, hash), 0o755))
 	}
+
 	return targetRoot
 }
 
@@ -113,6 +116,7 @@ func TestExecuteRemoveCommit(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testRoot(t)
+
 			targetRoot := makeBuildDirs(t, tt.builds...)
 			if tt.confirm != "" {
 				feedStdin(t, tt.confirm)
@@ -129,6 +133,7 @@ func TestExecuteRemoveCommit(t *testing.T) {
 			for _, kept := range tt.wantKept {
 				assert.DirExists(t, filepath.Join(targetRoot, kept))
 			}
+
 			for _, gone := range tt.wantGone {
 				assert.NoDirExists(t, filepath.Join(targetRoot, gone))
 			}

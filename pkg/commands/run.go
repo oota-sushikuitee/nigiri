@@ -20,7 +20,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// runCommand represents the structure for the run command
+// runCommand represents the structure for the run command.
 type runCommand struct {
 	cmd *cobra.Command
 }
@@ -63,6 +63,7 @@ Examples:
 			if err != nil {
 				return err
 			}
+
 			if inv.help || inv.target == "" {
 				return cmd.Help()
 			}
@@ -76,12 +77,13 @@ Examples:
 			if strings.EqualFold(inv.commitHash, "HEAD") {
 				// HEAD alias is specified, so set empty string to use the latest commit
 				inv.commitHash = ""
+
 				cmd.Printf("Using HEAD (latest commit)\n")
 			}
 
 			return c.executeRun(inv.target, inv.commitHash, inv.targetArgs)
 		},
-		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		ValidArgsFunction: func(_ *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 			// Offer tab completion for targets if no arguments provided yet
 			if len(args) == 0 {
 				return c.getCompletionTargets(toComplete), cobra.ShellCompDirectiveNoFileComp
@@ -96,6 +98,7 @@ Examples:
 				if strings.HasPrefix("HEAD", strings.ToUpper(toComplete)) {
 					completions = append([]string{"HEAD"}, completions...)
 				}
+
 				return completions, cobra.ShellCompDirectiveNoFileComp
 			}
 
@@ -104,6 +107,7 @@ Examples:
 	}
 
 	c.cmd = cmd
+
 	return c
 }
 
@@ -139,15 +143,19 @@ func parseRunArgs(args []string) (runInvocation, error) {
 
 	// Arguments after the first "--" always belong to the target.
 	before := args
+
 	var afterDash []string
+
 	for i, arg := range args {
 		if arg == "--" {
 			before, afterDash = args[:i], args[i+1:]
+
 			break
 		}
 	}
 
 	i := 0
+
 consume:
 	for i < len(before) {
 		arg := before[i]
@@ -159,6 +167,7 @@ consume:
 			if i+1 >= len(before) {
 				return inv, logger.CreateErrorf("flag needs an argument: %s", arg)
 			}
+
 			inv.configFile = before[i+1]
 			i += 2
 		case strings.HasPrefix(arg, "--config="):
@@ -190,15 +199,16 @@ consume:
 	if len(inv.targetArgs) == 0 {
 		inv.targetArgs = nil
 	}
+
 	return inv, nil
 }
 
-// getCompletionTargets returns a list of available targets for command completion
+// getCompletionTargets returns a list of available targets for command completion.
 func (c *runCommand) getCompletionTargets(prefix string) []string {
 	return getConfiguredTargets(prefix)
 }
 
-// getCompletionCommits returns a list of available commit hashes for the specified target
+// getCompletionCommits returns a list of available commit hashes for the specified target.
 func (c *runCommand) getCompletionCommits(target, prefix string) []string {
 	return getTargetCommits(target, prefix)
 }
@@ -219,6 +229,7 @@ func (c *runCommand) executeRun(target, commitHash string, args []string) error 
 		Target:  target,
 		Commits: commits.Commits{},
 	}
+
 	targetRootDir, err := fsTarget.GetTargetRootDir(nigiriRoot)
 	if err != nil {
 		return err
@@ -226,6 +237,7 @@ func (c *runCommand) executeRun(target, commitHash string, args []string) error 
 
 	// Use latest commit if none specified
 	var runDir string
+
 	if commitHash == "" {
 		// Find the most recent commit directory
 		dirs, err := os.ReadDir(targetRootDir)
@@ -233,15 +245,20 @@ func (c *runCommand) executeRun(target, commitHash string, args []string) error 
 			return logger.CreateErrorf("failed to read target directory: %w", err)
 		}
 
-		var latestDir string
-		var latestBuilt time.Time
+		var (
+			latestDir   string
+			latestBuilt time.Time
+		)
+
 		for _, dir := range dirs {
 			if dir.IsDir() {
 				commitDir := filepath.Join(targetRootDir, dir.Name())
+
 				info, err := os.Stat(commitDir)
 				if err != nil {
 					continue
 				}
+
 				built := buildTime(commitDir, info.ModTime())
 				if latestDir == "" || built.After(latestBuilt) {
 					latestBuilt = built
@@ -258,8 +275,9 @@ func (c *runCommand) executeRun(target, commitHash string, args []string) error 
 		c.cmd.Printf("Using latest commit: %s\n", latestDir)
 	} else {
 		// For specified commit
-		if len(commitHash) < 7 {
-			return logger.CreateErrorf("commit hash is too short: %s (minimum 7 characters)", commitHash)
+		if len(commitHash) < commits.ShortHashLength {
+			return logger.CreateErrorf("commit hash is too short: %s (minimum %d characters)",
+				commitHash, commits.ShortHashLength)
 		}
 
 		// Find directory matching the commit hash
@@ -269,9 +287,11 @@ func (c *runCommand) executeRun(target, commitHash string, args []string) error 
 		}
 
 		var matchingDir string
+
 		for _, dir := range dirs {
 			if dir.IsDir() && commitDirMatches(dir.Name(), commitHash) {
 				matchingDir = dir.Name()
+
 				break
 			}
 		}
@@ -288,6 +308,7 @@ func (c *runCommand) executeRun(target, commitHash string, args []string) error 
 	if err := cm.LoadCfgFile(); err != nil {
 		return logger.CreateErrorf("failed to load config: %w", err)
 	}
+
 	targetCfg, exists := cm.Config.GetTarget(target)
 	if !exists {
 		return logger.CreateErrorf("target '%s' not found in configuration", target)
@@ -310,14 +331,17 @@ func (c *runCommand) executeRun(target, commitHash string, args []string) error 
 		if _, err := os.Stat(srcArchive); err == nil {
 			if _, err := os.Stat(srcDir); os.IsNotExist(err) {
 				c.cmd.Printf("Extracting source archive...\n")
-				if err := os.MkdirAll(srcDir, 0755); err != nil {
+
+				if err := os.MkdirAll(srcDir, 0o755); err != nil {
 					return logger.CreateErrorf("failed to create source directory: %w", err)
 				}
+
 				if err := extractTarGz(srcArchive, srcDir); err != nil {
 					// A half-extracted tree would make the next run skip extraction.
 					if rmErr := os.RemoveAll(srcDir); rmErr != nil {
 						logger.Warnf("Failed to remove incomplete source directory %s: %v", srcDir, rmErr)
 					}
+
 					return logger.CreateErrorf("failed to extract source archive: %w", err)
 				}
 			}
@@ -366,7 +390,7 @@ func (c *runCommand) executeRun(target, commitHash string, args []string) error 
 
 	// Make sure binary is executable (not needed on Windows)
 	if runtime.GOOS != "windows" {
-		if err := os.Chmod(binaryPath, 0755); err != nil {
+		if err := os.Chmod(binaryPath, 0o755); err != nil {
 			return logger.CreateErrorf("failed to make binary executable: %w", err)
 		}
 	}
@@ -386,6 +410,7 @@ func (c *runCommand) executeRun(target, commitHash string, args []string) error 
 	}
 
 	c.cmd.Printf("Running %s with args: %v\n", binaryPath, args)
+
 	if err := cmd.Run(); err != nil {
 		// The target ran and failed on its own terms: report its status so the
 		// caller can distinguish it from nigiri failing to start the target.
@@ -393,8 +418,10 @@ func (c *runCommand) executeRun(target, commitHash string, args []string) error 
 		if errors.As(err, &exitErr) && exitErr.ExitCode() > 0 {
 			return &ExitCodeError{Code: exitErr.ExitCode()}
 		}
-		return err
+
+		return err //nolint:wrapcheck // exec errors already name the binary
 	}
+
 	return nil
 }
 
@@ -413,13 +440,17 @@ func commitDirMatches(dirName, commitHash string) bool {
 	if dirName == "" || commitHash == "" {
 		return false
 	}
+
 	return strings.HasPrefix(dirName, commitHash) || strings.HasPrefix(commitHash, dirName)
 }
 
-// maxFileSizeForExtract is the maximum file size allowed when extracting archives (1GB)
-const maxFileSizeForExtract = 1 << 30
+const (
+	// maxFileSizeForExtract is the maximum file size allowed when extracting archives (1GB).
+	maxFileSizeForExtract = 1 << 30
+	extractDirPerm        = 0o755
+)
 
-// extractTarGz extracts a tar.gz file to the specified directory
+// extractTarGz extracts a tar.gz file to the specified directory.
 func extractTarGz(tarGzPath, destDir string) error {
 	// Open the tar.gz file
 	file, err := os.Open(tarGzPath)
@@ -462,21 +493,22 @@ func extractTarGz(tarGzPath, destDir string) error {
 		if err == io.EOF {
 			break
 		}
+
 		if err != nil {
 			return fmt.Errorf("tar reading error: %w", err)
 		}
 
 		// Joining with "." turns absolute names into root-relative ones.
-		name := filepath.Join(".", header.Name)
+		name := filepath.Join(".", header.Name) //nolint:gosec // G305: root confines every path to destDir
 		if header.Typeflag != tar.TypeDir {
-			if err := root.MkdirAll(filepath.Dir(name), 0755); err != nil {
+			if err := root.MkdirAll(filepath.Dir(name), extractDirPerm); err != nil {
 				return fmt.Errorf("failed to create parent directory for %s: %w", header.Name, err)
 			}
 		}
 
 		switch header.Typeflag {
 		case tar.TypeDir:
-			if err := root.MkdirAll(name, 0755); err != nil {
+			if err := root.MkdirAll(name, extractDirPerm); err != nil {
 				return fmt.Errorf("failed to create directory: %w", err)
 			}
 		case tar.TypeSymlink:
@@ -484,11 +516,12 @@ func extractTarGz(tarGzPath, destDir string) error {
 				return fmt.Errorf("failed to create symlink: %w", err)
 			}
 		case tar.TypeLink:
+			//nolint:gosec // G305: root confines every path to destDir
 			if err := root.Link(filepath.Join(".", header.Linkname), name); err != nil {
 				return fmt.Errorf("failed to create hard link: %w", err)
 			}
 		default:
-			if err := extractFileFromTar(tarReader, root, name, header.Mode, header.Size); err != nil {
+			if err := extractFileFromTar(tarReader, root, name, header.FileInfo().Mode().Perm(), header.Size); err != nil {
 				return err
 			}
 		}
@@ -510,9 +543,12 @@ func extractTarGz(tarGzPath, destDir string) error {
 //
 // Returns:
 //   - error: Any error encountered while extracting the entry
-func extractFileFromTar(tarReader *tar.Reader, root *os.Root, filePath string, mode, size int64) error {
+func extractFileFromTar(
+	tarReader *tar.Reader, root *os.Root, filePath string, mode os.FileMode, size int64,
+) error {
 	if size > maxFileSizeForExtract {
-		return fmt.Errorf("archive entry %s exceeds the %d byte extraction size limit", filePath, int64(maxFileSizeForExtract))
+		return fmt.Errorf("archive entry %s exceeds the %d byte extraction size limit",
+			filePath, int64(maxFileSizeForExtract))
 	}
 
 	file, err := root.Create(filePath)
@@ -529,12 +565,13 @@ func extractFileFromTar(tarReader *tar.Reader, root *os.Root, filePath string, m
 	if err != nil {
 		return fmt.Errorf("failed to write file: %w", err)
 	}
+
 	if written != size {
 		return fmt.Errorf("archive entry %s is truncated: wrote %d of %d bytes", filePath, written, size)
 	}
 
 	// Set file permissions
-	if err := file.Chmod(os.FileMode(mode)); err != nil {
+	if err := file.Chmod(mode); err != nil {
 		return fmt.Errorf("failed to set file permissions: %w", err)
 	}
 
