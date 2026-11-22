@@ -108,15 +108,15 @@
   ],
   "customManagers": [
     {
-      "description": "Go install commands in YAML files",
+      "description": "Renovate version pinned for the config validator workflow",
       "customType": "regex",
       "managerFilePatterns": [
-        "/\\.ya?ml$/"
+        "/^\\.github/workflows/renovate-validator\\.yml$/"
       ],
       "matchStrings": [
-        "go install (?<depName>[^@]+?)@(?<currentValue>.+?)\\n"
+        "npx --package=(?<depName>renovate)@(?<currentValue>[^\\s]+)"
       ],
-      "datasourceTemplate": "go"
+      "datasourceTemplate": "npm"
     }
   ],
   "vulnerabilityAlerts": {
