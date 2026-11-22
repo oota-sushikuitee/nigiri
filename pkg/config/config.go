@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/oota-sushikuitee/nigiri/internal/models/config"
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 type fileConfig struct {
