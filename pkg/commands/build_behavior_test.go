@@ -96,10 +96,12 @@ func newTestBuild(out io.Writer) *buildCommand {
 func TestExecuteBuild_DefaultBranchHead(t *testing.T) {
 	repoDir, head := initRepoWithFiles(t, map[string]string{"sample": "#!/bin/sh\n"})
 	setupSampleTarget(t, repoDir, buildCommandFor("echo build-output"))
+	logs := captureLogger(t)
 
 	var out bytes.Buffer
 
 	require.NoError(t, newTestBuild(&out).executeBuild("sample"))
+	assert.Empty(t, logs.String())
 
 	short := head[:7]
 	commitDir := filepath.Join(nigiriRoot, "sample", short)
@@ -135,11 +137,13 @@ func TestExecuteBuild_DefaultBranchHead(t *testing.T) {
 func TestExecuteBuild_DefaultBranchFallsBackToMain(t *testing.T) {
 	repoDir, head := initRepoWithFiles(t, map[string]string{"sample": "#!/bin/sh\n"})
 	setupSampleTargetRaw(t, repoDir, buildCommandFor("true"))
+	logs := captureLogger(t)
 
 	var out bytes.Buffer
 
 	require.NoError(t, newTestBuild(&out).executeBuild("sample"))
 	assert.True(t, strings.HasPrefix(out.String(), "Getting HEAD of branch 'main' from "+repoDir+"...\n"))
+	assert.Equal(t, "WARNING: Branch 'main' not found; using the remote default branch 'master'\n", logs.String())
 	assert.DirExists(t, filepath.Join(nigiriRoot, "sample", head[:7]))
 	assert.NoDirExists(t, filepath.Join(nigiriRoot, "sample", "0000000"))
 }

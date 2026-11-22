@@ -17,10 +17,12 @@ import (
 )
 
 // Git is a remote git repository. HEAD holds the commit hash resolved by the
-// last successful Clone or GetDefaultBranchRemoteHead.
+// last successful Clone or GetDefaultBranchRemoteHead, and Branch the branch
+// name resolved by the last successful GetDefaultBranchRemoteHead.
 type Git struct {
 	Source string
 	HEAD   string
+	Branch string
 }
 
 const tokenAuthUsername = "x-access-token"
@@ -193,9 +195,10 @@ func isAuthRequiredError(err error) bool {
 }
 
 // GetDefaultBranchRemoteHead stores in g.HEAD the commit that defaultBranch
-// points to on the remote, without cloning. If the branch is not found, the
-// branch the remote's HEAD points to is used instead. Listing is retried with a GitHub token when
-// the remote requires authentication.
+// points to on the remote, and in g.Branch the branch name, without cloning.
+// If the branch is not found, the branch the remote's HEAD points to is used
+// instead. Listing is retried with a GitHub token when the remote requires
+// authentication.
 func (g *Git) GetDefaultBranchRemoteHead(defaultBranch string) error {
 	remote := git.NewRemote(nil, &config.RemoteConfig{
 		URLs: []string{g.Source},
@@ -242,6 +245,7 @@ func (g *Git) GetDefaultBranchRemoteHead(defaultBranch string) error {
 	}
 
 	g.HEAD = ref.Hash().String()
+	g.Branch = ref.Name().Short()
 
 	return nil
 }
