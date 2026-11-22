@@ -58,27 +58,7 @@ This creates a configuration file at `~/.nigiri/.nigiri.yml`.
 
 ## Configuration
 
-The configuration file is located at `~/.nigiri/.nigiri.yml`. Here's an example configuration:
-
-```yaml
-targets:
-  sample-project:
-    source: https://github.com/octocat/Hello-World
-    default-branch: main
-    # The directory within the repository to run the build command (optional)
-    working-directory: ""
-    # Whether to keep only the binary and remove source code after build (optional)
-    binary-only: false
-    build-command:
-      linux: make build
-      windows: make build
-      darwin: make build
-      # Path to the built binary (relative to working directory or repository root)
-      binary-path: bin/myapp
-    env:
-      - "GO111MODULE=on"
-      - "CGO_ENABLED=0"
-```
+The configuration file is located at `~/.nigiri/.nigiri.yml`. `nigiri init` writes an annotated sample, [`pkg/commands/sample-config.yml`](./pkg/commands/sample-config.yml), to that location.
 
 ### Configuration Options
 
@@ -90,187 +70,17 @@ targets:
   - `linux`, `windows`, `darwin`: Build commands for each OS
   - `binary-path`: Path to the built binary, relative to `working-directory` (or to the repository root when `working-directory` is unset)
 - `env`: Environment variables to set during build and run
-
-A top-level `defaults` section provides the build commands used by targets that
-define none of their own:
-
-```yaml
-defaults:
-  linux: make build
-  windows: make build
-  darwin: make build
-```
+- `defaults` (top level): build commands used by targets that define none of their own
 
 ## Commands
 
-### Global Flags
+`nigiri --help` lists the commands; `nigiri <command> --help` shows each command's flags, their defaults, and usage examples.
 
-- `--config`, `-c`: path to the configuration file to use (default `~/.nigiri/.nigiri.yml`)
+A few rules that `--help` does not spell out:
 
-### Initialize
-
-Create a new nigiri configuration file:
-
-```bash
-nigiri init
-```
-
-### List
-
-List the targets that have been built, with the number of builds each has:
-
-```bash
-nigiri list
-```
-
-List the builds of a single target, newest first:
-
-```bash
-nigiri list <target>
-```
-
-Targets that are configured but have not been built yet are not listed.
-
-### Build
-
-Build a target at a specific commit:
-
-```bash
-nigiri build <target> [commit]
-```
-
-The commit must be a hexadecimal commit hash of 7 to 40 characters; branch and tag names are not accepted.
-
-To build a target with GitHub token authentication (for private repositories):
-
-```bash
-nigiri build <target> --use-token
-# or
-nigiri build <target> -t
-```
-
-To force rebuild even if the target has already been built:
-
-```bash
-nigiri build <target> --force
-# or
-nigiri build <target> -f
-```
-
-To build with a specific clone depth:
-
-```bash
-nigiri build <target> --depth <depth>
-# or
-nigiri build <target> -d <depth>
-```
-
-For verbose output:
-
-```bash
-nigiri build <target> --verbose
-# or
-nigiri build <target> -v
-```
-
-To set a build timeout in minutes (0 disables the timeout; default is 30):
-
-```bash
-nigiri build <target> --timeout <minutes>
-```
-
-Note: `--depth` defaults to `1` (a shallow clone). Use `--depth 0` to clone the full history.
-
-### Run
-
-Run a built target:
-
-```bash
-nigiri run <target> [commit] [args...]
-```
-
-If the commit is not specified, the latest built commit will be used.
-
-#### Examples
-
-Run the latest build of a target:
-```bash
-nigiri run <target>
-```
-
-Run a specific commit:
-```bash
-nigiri run <target> <commit>
-```
-
-Run with HEAD (latest commit) explicitly:
-```bash
-nigiri run <target> HEAD
-```
-
-Run and pass arguments to the target:
-```bash
-nigiri run <target> <commit> arg1 arg2
-```
-
-Run with arguments including flags:
-```bash
-nigiri run <target> HEAD -v --flag=value
-```
-
-Explicitly separate nigiri arguments from target arguments:
-```bash
-nigiri run <target> <commit> -- -v --flag=value
-```
-
-Note: When the second argument starts with `-`, it's treated as an argument for the target program, not a commit hash.
-
-### Remove
-
-Remove a built target:
-
-```bash
-nigiri remove <target> [commit]
-```
-
-If a commit is specified, only that commit's build is removed. If no commit is
-specified, the entire target and all its builds are removed.
-
-Remove every target and all their builds:
-
-```bash
-nigiri remove --all
-```
-
-### Cleanup
-
-Run with no arguments to show the current disk usage of builds per target (this
-does not remove anything):
-
-```bash
-nigiri cleanup
-```
-
-Clean up old builds for a specific target, keeping the most recent builds
-according to the retention limits:
-
-```bash
-nigiri cleanup <target>
-```
-
-Clean up old builds across all targets:
-
-```bash
-nigiri cleanup --all
-```
-
-Retention and behavior are controlled by flags:
-
-- `--max-age`, `-a`: maximum age of builds to keep, in days (default `30`; `0` disables)
-- `--max-builds`, `-b`: maximum number of builds to keep per target (default `5`; `0` disables)
-- `--dry-run`, `-d`: show what would be removed without removing anything
-- `--all`, `-A`: apply to all targets
-- `--yes`, `-y`: skip the confirmation prompt
+- `build` accepts only a hexadecimal commit hash of 7 to 40 characters; branch and tag names are not accepted.
+- `run`: when the second argument starts with `-`, it is passed to the target program instead of being read as a commit hash.
+- `list` shows only targets that have been built; configured but unbuilt targets are not listed.
 
 ## Advanced Features
 
