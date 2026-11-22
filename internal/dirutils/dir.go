@@ -1,4 +1,4 @@
-// Package dirutils provides directory listing, sizing, and cleanup helpers.
+// Package dirutils provides directory listing and sizing helpers.
 package dirutils
 
 import (
@@ -11,19 +11,16 @@ import (
 	"github.com/oota-sushikuitee/nigiri/pkg/logger"
 )
 
-// DirEntry represents a directory entry with its name, time, and whether it's a directory
-//
-// Fields:
-//   - ModTime: The modification time of the entry
-//   - Name: The name of the entry
-//   - IsDir: Whether the entry is a directory
+// DirEntry is the subset of a directory entry's metadata that callers sort and
+// filter on.
 type DirEntry struct {
 	ModTime time.Time
 	Name    string
 	IsDir   bool
 }
 
-// SortDirEntriesByTime sorts directory entries by modification time.
+// SortDirEntriesByTime sorts entries in place by ModTime, newest first when
+// descending is true.
 func SortDirEntriesByTime(entries []DirEntry, descending bool) {
 	if descending {
 		sort.Slice(entries, func(i, j int) bool {
@@ -36,7 +33,10 @@ func SortDirEntriesByTime(entries []DirEntry, descending bool) {
 	}
 }
 
-// GetDirEntries returns a list of directory entries.
+// GetDirEntries returns the entries of dir whose names contain filter,
+// compared case-insensitively; an empty filter matches everything. Hidden
+// entries are skipped unless filter contains a dot. Entries whose metadata
+// cannot be read are omitted.
 func GetDirEntries(dir string, filter string) ([]DirEntry, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -46,12 +46,10 @@ func GetDirEntries(dir string, filter string) ([]DirEntry, error) {
 	var result []DirEntry
 
 	for _, entry := range entries {
-		// Skip hidden files/directories (starting with .) if filter doesn't explicitly include them
 		if strings.HasPrefix(entry.Name(), ".") && !strings.Contains(filter, ".") {
 			continue
 		}
 
-		// Apply filter if provided
 		if filter != "" && !strings.Contains(strings.ToLower(entry.Name()), strings.ToLower(filter)) {
 			continue
 		}
@@ -71,7 +69,7 @@ func GetDirEntries(dir string, filter string) ([]DirEntry, error) {
 	return result, nil
 }
 
-// GetDirSize calculates the total size of a directory in bytes.
+// GetDirSize returns the total size in bytes of the regular files under path.
 func GetDirSize(path string) (int64, error) {
 	var size int64
 
@@ -93,13 +91,8 @@ func GetDirSize(path string) (int64, error) {
 	return size, nil
 }
 
-// Exists checks if a file or directory exists at the given path
-//
-// Parameters:
-//   - path: The path to check
-//
-// Returns:
-//   - bool: True if the file or directory exists, false otherwise
+// Exists reports whether path exists. Stat errors other than "not exist", such
+// as a permission error, count as existing.
 func Exists(path string) bool {
 	_, err := os.Stat(path)
 

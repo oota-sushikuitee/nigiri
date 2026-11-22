@@ -20,14 +20,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// runCommand represents the structure for the run command.
 type runCommand struct {
 	cmd *cobra.Command
 }
 
-// newRunCommand creates a new run command instance which allows users
-// to execute previously built targets with optional arguments.
-// The command supports specifying a particular commit to run or defaults to the latest.
 func newRunCommand() *runCommand {
 	c := &runCommand{}
 	cmd := &cobra.Command{
@@ -111,33 +107,20 @@ Examples:
 	return c
 }
 
-// runInvocation is the result of parsing a raw `nigiri run` argument list.
 type runInvocation struct {
-	// target is the built target to run
 	target string
-	// commitHash is the requested commit, empty for the latest build
+	// commitHash is empty for the latest build.
 	commitHash string
-	// configFile is the path given to the global --config flag, if any
 	configFile string
-	// targetArgs are the arguments passed through to the target program
 	targetArgs []string
-	// help reports whether nigiri's own help was requested
-	help bool
+	help       bool
 }
 
-// parseRunArgs splits a raw `nigiri run` argument list into nigiri's own
-// arguments and the target's. Flag parsing is disabled for this command so that
+// parseRunArgs exists because flag parsing is disabled for `nigiri run` so that
 // target flags pass through untouched, which means nigiri's global flags have to
 // be recognised here; they are only accepted before the target name, so anything
 // after it still belongs to the target. Everything that is neither the target
 // nor a commit hash is forwarded, including arguments preceding a "--".
-//
-// Parameters:
-//   - args: The raw argument list as received from cobra
-//
-// Returns:
-//   - runInvocation: The parsed invocation
-//   - error: An error when a nigiri flag is missing its value
 func parseRunArgs(args []string) (runInvocation, error) {
 	var inv runInvocation
 
@@ -203,27 +186,14 @@ consume:
 	return inv, nil
 }
 
-// getCompletionTargets returns a list of available targets for command completion.
 func (c *runCommand) getCompletionTargets(prefix string) []string {
 	return getConfiguredTargets(prefix)
 }
 
-// getCompletionCommits returns a list of available commit hashes for the specified target.
 func (c *runCommand) getCompletionCommits(target, prefix string) []string {
 	return getTargetCommits(target, prefix)
 }
 
-// executeRun executes the specified target with the given commit hash and arguments.
-// If commitHash is empty, it uses the most recently built version of the target.
-// It handles locating the binary, setting up the execution environment, and running the process.
-//
-// Parameters:
-//   - target: The name of the built target to run
-//   - commitHash: The specific commit hash to use (can be empty for the latest build)
-//   - args: Additional arguments to pass to the target binary when executing
-//
-// Returns:
-//   - error: Any error encountered during the execution process
 func (c *runCommand) executeRun(target, commitHash string, args []string) error {
 	fsTarget := targets.Target{Target: target}
 
@@ -422,17 +392,10 @@ func (c *runCommand) executeRun(target, commitHash string, args []string) error 
 	return nil
 }
 
-// commitDirMatches reports whether the stored build directory dirName refers to
-// the commit the user asked for. Build directories are named after the 7-char
-// short hash, so a query can be either a prefix of that name or a longer hash
-// (typically the full 40-char one) that the name is a prefix of.
-//
-// Parameters:
-//   - dirName: The name of a build directory under the target root
-//   - commitHash: The commit hash supplied by the user
-//
-// Returns:
-//   - bool: True if the directory holds the build for the queried commit
+// commitDirMatches matches in both directions because build directories are
+// named after the 7-char short hash, so a query can be either a prefix of that
+// name or a longer hash (typically the full 40-char one) that the name is a
+// prefix of.
 func commitDirMatches(dirName, commitHash string) bool {
 	if dirName == "" || commitHash == "" {
 		return false
@@ -442,12 +405,10 @@ func commitDirMatches(dirName, commitHash string) bool {
 }
 
 const (
-	// maxFileSizeForExtract is the maximum file size allowed when extracting archives (1GB).
 	maxFileSizeForExtract = 1 << 30
 	extractDirPerm        = 0o755
 )
 
-// extractTarGz extracts a tar.gz file to the specified directory.
 func extractTarGz(tarGzPath, destDir string) error {
 	// Open the tar.gz file
 	file, err := os.Open(tarGzPath)
@@ -527,19 +488,9 @@ func extractTarGz(tarGzPath, destDir string) error {
 	return nil
 }
 
-// extractFileFromTar extracts a single file from the tar reader with proper
-// resource cleanup. Entries above the size limit are rejected rather than
-// written truncated, since the result would be reported as a valid extraction.
-//
-// Parameters:
-//   - tarReader: The archive positioned at the entry to extract
-//   - root: The extraction root the destination is resolved in
-//   - filePath: The destination path relative to root
-//   - mode: The file mode recorded in the tar header
-//   - size: The entry size recorded in the tar header
-//
-// Returns:
-//   - error: Any error encountered while extracting the entry
+// extractFileFromTar is a separate function so the deferred Close runs per
+// entry. Entries above the size limit are rejected rather than written
+// truncated, since the result would be reported as a valid extraction.
 func extractFileFromTar(
 	tarReader *tar.Reader, root *os.Root, filePath string, mode os.FileMode, size int64,
 ) error {

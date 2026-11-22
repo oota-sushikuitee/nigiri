@@ -11,17 +11,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// removeCommand represents the structure for the remove command.
 type removeCommand struct {
 	cmd *cobra.Command
 	all bool
 }
 
-// newRemoveCommand creates a new remove command instance which allows users
-// to remove a specified target from the nigiri root directory.
-//
-// Returns:
-//   - *removeCommand: A configured remove command instance
 func newRemoveCommand() *removeCommand {
 	c := &removeCommand{}
 	cmd := &cobra.Command{
@@ -80,7 +74,6 @@ If no commit is specified, the entire target and all its builds will be removed.
 	return c
 }
 
-// getCompletionTargets returns a list of available targets for command completion.
 func (c *removeCommand) getCompletionTargets(prefix string) []string {
 	entries, err := os.ReadDir(nigiriRoot)
 	if err != nil {
@@ -98,7 +91,6 @@ func (c *removeCommand) getCompletionTargets(prefix string) []string {
 	return targets
 }
 
-// getCompletionCommits returns a list of available commit hashes for the specified target.
 func (c *removeCommand) getCompletionCommits(target, prefix string) []string {
 	fsTarget := targets.Target{Target: target}
 
@@ -123,14 +115,6 @@ func (c *removeCommand) getCompletionCommits(target, prefix string) []string {
 	return commits
 }
 
-// executeRemove handles the removal of the specified target from the nigiri root directory.
-// It deletes the target's root directory and all its contents.
-//
-// Parameters:
-//   - target: The name of the target to remove
-//
-// Returns:
-//   - error: Any error encountered during the removal process
 func (c *removeCommand) executeRemove(target string) error {
 	t := targets.Target{Target: target}
 
@@ -162,14 +146,6 @@ func (c *removeCommand) executeRemove(target string) error {
 	return nil
 }
 
-// executeRemoveCommit handles the removal of a specific commit build for a target.
-//
-// Parameters:
-//   - target: The name of the target
-//   - commitHash: The commit hash to remove
-//
-// Returns:
-//   - error: Any error encountered during the removal process
 func (c *removeCommand) executeRemoveCommit(target, commitHash string) error {
 	t := targets.Target{Target: target}
 
@@ -239,10 +215,6 @@ func (c *removeCommand) executeRemoveCommit(target, commitHash string) error {
 	return nil
 }
 
-// executeRemoveAll handles the removal of all targets from the nigiri root directory.
-//
-// Returns:
-//   - error: Any error encountered during the removal process
 func (c *removeCommand) executeRemoveAll() error {
 	// Ask for confirmation before removing all targets
 	c.cmd.Print("This will remove ALL targets and ALL builds. This cannot be undone. Continue? (y/n): ")

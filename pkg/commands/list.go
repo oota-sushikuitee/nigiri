@@ -11,17 +11,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// listCommand represents the structure for the list command.
 type listCommand struct {
 	cmd *cobra.Command
 }
 
-// newListCommand creates a new list command instance which allows users
-// to view installed targets and their commits. It can list all targets
-// or provide detailed information about the commits for a specific target.
-//
-// Returns:
-//   - *listCommand: A configured list command instance
 func newListCommand() *listCommand {
 	c := &listCommand{}
 	cmd := &cobra.Command{
@@ -41,11 +34,6 @@ func newListCommand() *listCommand {
 	return c
 }
 
-// listAllTargets lists all installed targets and the number of commits for each.
-// It reads the nigiri root directory and displays a summary of all available targets.
-//
-// Returns:
-//   - error: Any error encountered while reading the directory or target information
 func (c *listCommand) listAllTargets() error {
 	// Examine the contents of the .nigiri directory
 	entries, err := os.ReadDir(nigiriRoot)
@@ -96,21 +84,11 @@ func (c *listCommand) listAllTargets() error {
 	return nil
 }
 
-// commitInfo represents information about a commit, optimized for memory layout.
 type commitInfo struct {
-	modTime time.Time // 24 bytes
-	hash    string    // 16 bytes (pointer + length)
+	modTime time.Time
+	hash    string
 }
 
-// listTargetCommits lists all commits for a specified target, sorted by build time.
-// It displays configuration information for the target if available, followed by a list
-// of commit hashes with their build timestamps.
-//
-// Parameters:
-//   - target: The name of the target whose commits should be listed
-//
-// Returns:
-//   - error: Any error encountered while reading the target directory or commit information
 func (c *listCommand) listTargetCommits(target string) error {
 	if err := targets.ValidateTargetName(target); err != nil {
 		return err

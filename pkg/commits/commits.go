@@ -22,17 +22,9 @@ const (
 	maxHashLength = 40
 )
 
-// validateHashString checks that a commit identifier is a plausible git object
-// name. The value is used verbatim as a filesystem path element, so anything
-// but hexadecimal characters (path separators, "..", spaces) is rejected to
-// prevent a crafted commit argument from escaping the nigiri root.
-//
-// Parameters:
-//   - kind: The field name used in error messages
-//   - value: The commit identifier to validate
-//
-// Returns:
-//   - error: An error describing why the identifier is invalid, or nil if it is valid
+// validateHashString rejects anything but hexadecimal characters (path
+// separators, "..", spaces) because the value is used verbatim as a filesystem
+// path element, and a crafted commit argument must not escape the nigiri root.
 func validateHashString(kind, value string) error {
 	if value == "" {
 		return fmt.Errorf("%s is empty", kind)
@@ -57,10 +49,8 @@ func validateHashString(kind, value string) error {
 	return nil
 }
 
-// Validate checks if the commit has valid hash and short hash values
-//
-// Returns:
-//   - error: Any error encountered during validation
+// Validate reports an error unless both Hash and ShortHash are hexadecimal
+// strings of ShortHashLength to 40 characters.
 func (c *Commit) Validate() error {
 	if err := validateHashString("hash", c.Hash); err != nil {
 		return err
@@ -69,10 +59,8 @@ func (c *Commit) Validate() error {
 	return validateHashString("short hash", c.ShortHash)
 }
 
-// CalculateShortHash calculates the short hash from the full hash
-//
-// Returns:
-//   - error: Any error encountered during the calculation
+// CalculateShortHash sets ShortHash to the first ShortHashLength characters of
+// Hash, after checking that Hash is a valid commit hash.
 func (c *Commit) CalculateShortHash() error {
 	if err := validateHashString("hash", c.Hash); err != nil {
 		return err
