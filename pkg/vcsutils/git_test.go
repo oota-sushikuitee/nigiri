@@ -186,24 +186,39 @@ func TestGetDefaultBranchRemoteHead(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
-		branch string
+		name       string
+		branch     string
+		wantBranch string
 		// setup returns the commit expected in g.HEAD, or "" for an error.
 		setup func(t *testing.T, r *git.Repository, first, second string) string
 	}{
 		{
-			name:   "requested branch exists",
-			branch: "master",
-			setup:  func(_ *testing.T, _ *git.Repository, _, second string) string { return second },
+			name:       "requested branch exists",
+			branch:     "master",
+			wantBranch: "master",
+			setup:      func(_ *testing.T, _ *git.Repository, _, second string) string { return second },
 		},
 		{
-			name:   "missing branch falls back to the commit of the remote default branch",
-			branch: "main",
-			setup:  func(_ *testing.T, _ *git.Repository, _, second string) string { return second },
+			name:       "requested branch other than the remote default branch",
+			branch:     "dev",
+			wantBranch: "dev",
+			setup: func(t *testing.T, r *git.Repository, first, _ string) string {
+				t.Helper()
+				setRef(t, r, plumbing.NewHashReference(plumbing.NewBranchReferenceName("dev"), plumbing.NewHash(first)))
+
+				return first
+			},
 		},
 		{
-			name:   "fallback follows HEAD to a default branch other than master",
-			branch: "main",
+			name:       "missing branch falls back to the commit of the remote default branch",
+			branch:     "main",
+			wantBranch: "master",
+			setup:      func(_ *testing.T, _ *git.Repository, _, second string) string { return second },
+		},
+		{
+			name:       "fallback follows HEAD to a default branch other than master",
+			branch:     "main",
+			wantBranch: "trunk",
 			setup: func(t *testing.T, r *git.Repository, first, _ string) string {
 				t.Helper()
 
@@ -263,6 +278,10 @@ func TestGetDefaultBranchRemoteHead(t *testing.T) {
 
 			if g.HEAD != want {
 				t.Errorf("GetDefaultBranchRemoteHead(%q) HEAD = %q, want %q", tt.branch, g.HEAD, want)
+			}
+
+			if g.Branch != tt.wantBranch {
+				t.Errorf("GetDefaultBranchRemoteHead(%q) Branch = %q, want %q", tt.branch, g.Branch, tt.wantBranch)
 			}
 		})
 	}

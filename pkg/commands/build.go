@@ -213,6 +213,10 @@ func (c *buildCommand) resolveHeadCommit(git *vcsutils.Git, targetCfg cfgmodel.T
 			return commits.Commit{}, logger.CreateErrorf("failed to get HEAD of branch '%s': %w", defaultBranch, err)
 		}
 
+		if git.Branch != defaultBranch {
+			logger.Warnf("Branch '%s' not found; using the remote default branch '%s'", defaultBranch, git.Branch)
+		}
+
 		headCommit.Hash = git.HEAD
 	} else {
 		c.cmd.Printf("Using specified commit: %s\n", c.commit)
