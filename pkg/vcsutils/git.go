@@ -31,9 +31,6 @@ type AuthMethod string
 const (
 	// AuthToken authenticates over HTTPS with a GitHub token.
 	AuthToken AuthMethod = "token"
-	// AuthSSH is reserved for SSH key authentication; Clone does not
-	// implement it and clones anonymously.
-	AuthSSH AuthMethod = "ssh"
 	// AuthNone clones anonymously, retrying with a GitHub token if the
 	// remote requires authentication and a token is available.
 	AuthNone AuthMethod = "none"
@@ -51,8 +48,6 @@ type Options struct {
 	Depth int
 	// Verbose writes clone progress to stdout.
 	Verbose bool
-	// UnshallowIfNeeded is currently ignored.
-	UnshallowIfNeeded bool
 }
 
 func getGitHubToken() (string, error) {

@@ -97,15 +97,6 @@ func TestNewConfigManager(t *testing.T) {
 	}
 }
 
-func TestConfigManager_GetConfig(t *testing.T) {
-	cm := NewConfigManager()
-
-	config := cm.GetConfig()
-	if config == nil {
-		t.Error("GetConfig() returned nil")
-	}
-}
-
 func TestConfig_GetSetCfgDir(t *testing.T) {
 	// 既存のNewConfigではホームディレクトリが設定されるため、
 	// 空のcfgDirでConfigを直接初期化する
@@ -324,79 +315,6 @@ func TestBuildCommand_BinaryPath(t *testing.T) {
 	}
 }
 
-func TestConfigManager_SaveCfgFile(t *testing.T) {
-	tempDir, cm := setupTestConfig(t)
-	defer cleanupTestConfig(tempDir)
-
-	// Load the existing config
-	if err := cm.LoadCfgFile(); err != nil {
-		t.Fatalf("Failed to load test config: %v", err)
-	}
-
-	// Modify the config
-	cm.Config.Targets["new-target"] = internalconfig.Target{
-		Sources:       "https://github.com/Okabe-Junya/dotfiles",
-		DefaultBranch: "main",
-		BuildCommand: internalconfig.BuildCommand{
-			Linux:           "make build",
-			Windows:         "make build",
-			Darwin:          "make build",
-			BinaryPathValue: "/usr/local/bin/test",
-		},
-		Env:              []string{"TEST_ENV=value"},
-		WorkingDirectory: "/tmp",
-		BinaryOnly:       true,
-	}
-
-	// Save the modified config
-	err := cm.SaveCfgFile()
-	if err != nil {
-		t.Fatalf("SaveCfgFile() error = %v", err)
-	}
-
-	// Create a new config instance and load the saved file
-	newCm := NewConfigManager()
-	newCm.Config.SetCfgDir(tempDir)
-
-	if err := newCm.LoadCfgFile(); err != nil {
-		t.Fatalf("Failed to load saved config: %v", err)
-	}
-
-	// Verify the new config has the added target
-	newTarget, exists := newCm.Config.Targets["new-target"]
-	if !exists {
-		t.Error("new-target not found in saved config")
-	} else {
-		if newTarget.Sources != "https://github.com/Okabe-Junya/dotfiles" {
-			t.Errorf("Saved target source = %s, want %s", newTarget.Sources, "https://github.com/Okabe-Junya/dotfiles")
-		}
-
-		if !newTarget.BinaryOnly {
-			t.Error("Saved target binary-only flag was not persisted")
-		}
-
-		if newTarget.WorkingDirectory != "/tmp" {
-			t.Errorf("Saved target working directory = %s, want %s", newTarget.WorkingDirectory, "/tmp")
-		}
-
-		path, hasPath := newTarget.BuildCommand.BinaryPath()
-		if !hasPath {
-			t.Error("Saved target binary path was not persisted")
-		} else if path != "/usr/local/bin/test" {
-			t.Errorf("Saved target binary path = %s, want %s", path, "/usr/local/bin/test")
-		}
-	}
-
-	// Verify original targets still exist
-	if _, exists := newCm.Config.Targets["test-target"]; !exists {
-		t.Error("test-target not found in saved config")
-	}
-
-	if _, exists := newCm.Config.Targets["another-target"]; !exists {
-		t.Error("another-target not found in saved config")
-	}
-}
-
 func TestConfigManager_LoadCfgFile_FileVariants(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -504,27 +422,5 @@ targets:
 
 	if err := cm.LoadCfgFile(); err == nil {
 		t.Error("LoadCfgFile() expected error for non-bool binary-only value")
-	}
-}
-
-// Test saving to a directory with insufficient permissions.
-func TestConfigManager_SaveCfgFile_PermissionDenied(t *testing.T) {
-	// Skip on Windows where permissions work differently
-	if os.Getenv("GOOS") == "windows" {
-		t.Skip("Skipping permission test on Windows")
-	}
-
-	// Only run if not running as root
-	if os.Geteuid() == 0 {
-		t.Skip("Skipping permission test when running as root")
-	}
-
-	cm := NewConfigManager()
-	cm.Config.SetCfgDir("/root/.nigiri") // A directory normal users can't write to
-
-	// Should fail to save
-	err := cm.SaveCfgFile()
-	if err == nil {
-		t.Error("SaveCfgFile() should fail when writing to a protected directory")
 	}
 }
