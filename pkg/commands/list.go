@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// listCommand represents the structure for the list command
+// listCommand represents the structure for the list command.
 type listCommand struct {
 	cmd *cobra.Command
 }
@@ -29,14 +29,16 @@ func newListCommand() *listCommand {
 		Use:   "list [target]",
 		Short: "List installed targets and commits",
 		Long:  `List all installed targets and their commits, or list commits for a specific target.`,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return c.listAllTargets()
 			}
+
 			return c.listTargetCommits(args[0])
 		},
 	}
 	c.cmd = cmd
+
 	return c
 }
 
@@ -51,42 +53,51 @@ func (c *listCommand) listAllTargets() error {
 	if err != nil {
 		if os.IsNotExist(err) {
 			c.cmd.Println("No targets installed.")
+
 			return nil
 		}
+
 		return fmt.Errorf("failed to read nigiri root directory: %w", err)
 	}
 
 	if len(entries) == 0 {
 		c.cmd.Println("No targets installed.")
+
 		return nil
 	}
 
 	// Display each target directory
 	c.cmd.Println("Installed targets:")
+
 	for _, entry := range entries {
 		if entry.IsDir() && entry.Name()[0] != '.' {
 			targetName := entry.Name()
 			// Count the number of commits
 			targetDir := filepath.Join(nigiriRoot, targetName)
+
 			commits, err := os.ReadDir(targetDir)
 			if err != nil {
 				continue
 			}
+
 			commitCount := 0
+
 			for _, commit := range commits {
 				if commit.IsDir() {
 					commitCount++
 				}
 			}
+
 			c.cmd.Printf("  %s (%d commits)\n", targetName, commitCount)
 		}
 	}
 
 	c.cmd.Println("\nUse 'nigiri list <target>' to see commits for a specific target.")
+
 	return nil
 }
 
-// commitInfo represents information about a commit, optimized for memory layout
+// commitInfo represents information about a commit, optimized for memory layout.
 type commitInfo struct {
 	modTime time.Time // 24 bytes
 	hash    string    // 16 bytes (pointer + length)
@@ -107,6 +118,7 @@ func (c *listCommand) listTargetCommits(target string) error {
 		Target:  target,
 		Commits: commits.Commits{},
 	}
+
 	targetDir, err := fsTarget.GetTargetRootDir(nigiriRoot)
 	if err != nil {
 		return err
@@ -125,18 +137,22 @@ func (c *listCommand) listTargetCommits(target string) error {
 
 	if len(entries) == 0 {
 		c.cmd.Printf("No commits found for target '%s'.\n", target)
+
 		return nil
 	}
 
 	// Collect commit information and sort by time
 	var commits []commitInfo
+
 	for _, entry := range entries {
 		if entry.IsDir() {
 			commitDir := filepath.Join(targetDir, entry.Name())
+
 			info, err := os.Stat(commitDir)
 			if err != nil {
 				continue
 			}
+
 			commits = append(commits, commitInfo{
 				hash:    entry.Name(),
 				modTime: buildTime(commitDir, info.ModTime()),
@@ -160,10 +176,12 @@ func (c *listCommand) listTargetCommits(target string) error {
 	}
 
 	c.cmd.Printf("\nCommits for target '%s' (newest first):\n", target)
+
 	for i, commit := range commits {
 		c.cmd.Printf("  %d. %s (built on %s)\n", i+1, commit.hash, commit.modTime.Format("2006-01-02 15:04:05"))
 	}
 
 	c.cmd.Println("\nUse 'nigiri run " + target + " <commit>' to run a specific commit.")
+
 	return nil
 }

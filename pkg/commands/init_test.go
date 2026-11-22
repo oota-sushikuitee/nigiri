@@ -23,6 +23,7 @@ func initTestGlobals(t *testing.T) string {
 	root := filepath.Join(t.TempDir(), "nigiri")
 	cfgPath := filepath.Join(root, ".nigiri.yml")
 	restoreCommandGlobals(t, root, cfgPath)
+
 	return cfgPath
 }
 
@@ -82,6 +83,7 @@ func TestExecuteInit_OverwritePrompt(t *testing.T) {
 
 			content, err := os.ReadFile(cfgPath)
 			require.NoError(t, err)
+
 			if tt.wantOverwrit {
 				assert.Contains(t, string(content), "sample-project")
 			} else {

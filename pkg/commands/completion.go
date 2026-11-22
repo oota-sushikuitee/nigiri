@@ -23,11 +23,13 @@ func getConfiguredTargets(prefix string) []string {
 	}
 
 	var targetList []string
+
 	for target := range cm.Config.Targets {
 		if strings.HasPrefix(target, prefix) {
 			targetList = append(targetList, target)
 		}
 	}
+
 	return targetList
 }
 
@@ -46,6 +48,7 @@ func getInstalledTargets(prefix string) []string {
 	}
 
 	var targetList []string
+
 	for _, entry := range entries {
 		if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") {
 			if prefix == "" || strings.HasPrefix(entry.Name(), prefix) {
@@ -53,6 +56,7 @@ func getInstalledTargets(prefix string) []string {
 			}
 		}
 	}
+
 	return targetList
 }
 
@@ -70,6 +74,7 @@ func getTargetCommits(target, prefix string) []string {
 		Target:  target,
 		Commits: commits.Commits{},
 	}
+
 	targetRootDir, err := fsTarget.GetTargetRootDir(nigiriRoot)
 	if err != nil {
 		return nil
@@ -81,10 +86,12 @@ func getTargetCommits(target, prefix string) []string {
 	}
 
 	var commitList []string
+
 	for _, dir := range dirs {
 		if dir.IsDir() && strings.HasPrefix(dir.Name(), prefix) {
 			commitList = append(commitList, dir.Name())
 		}
 	}
+
 	return commitList
 }

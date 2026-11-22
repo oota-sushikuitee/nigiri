@@ -12,6 +12,7 @@ import (
 // "sample" target pointing at the given source, and returns its path.
 func writeTestConfig(t *testing.T, dir, source string) string {
 	t.Helper()
+
 	cfgPath := filepath.Join(dir, ".nigiri.yml")
 	cfg := "targets:\n" +
 		"  sample:\n" +
@@ -21,6 +22,7 @@ func writeTestConfig(t *testing.T, dir, source string) string {
 		"      darwin: \"true\"\n" +
 		"      windows: \"true\"\n"
 	require.NoError(t, os.WriteFile(cfgPath, []byte(cfg), 0o600))
+
 	return cfgPath
 }
 
@@ -33,6 +35,7 @@ func testRoot(t *testing.T) string {
 	cfgPath := writeTestConfig(t, dir, filepath.Join(dir, "missing-repo"))
 	root := filepath.Join(dir, "nigiri")
 	restoreCommandGlobals(t, root, cfgPath)
+
 	return root
 }
 
@@ -46,12 +49,15 @@ func feedStdin(t *testing.T, input string) {
 	require.NoError(t, err)
 
 	prev := os.Stdin
+
 	t.Cleanup(func() {
 		os.Stdin = prev
+
 		if err := file.Close(); err != nil {
 			t.Logf("failed to close stdin stub: %v", err)
 		}
 	})
+
 	os.Stdin = file
 }
 
@@ -59,10 +65,13 @@ func feedStdin(t *testing.T, input string) {
 // test locations and restores the previous values when the test ends.
 func restoreCommandGlobals(t *testing.T, root, cfgFile string) {
 	t.Helper()
+
 	prevRoot, prevCfg := nigiriRoot, cfgFileFlag
+
 	t.Cleanup(func() {
 		nigiriRoot, cfgFileFlag = prevRoot, prevCfg
 	})
+
 	nigiriRoot = root
 	cfgFileFlag = cfgFile
 }

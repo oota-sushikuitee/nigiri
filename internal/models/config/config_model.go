@@ -16,6 +16,11 @@ type Config struct {
 	cfgFile  string
 }
 
+// NewConfig returns an empty Config.
+func NewConfig() *Config {
+	return &Config{}
+}
+
 // Target represents the configuration for a specific target
 //
 // Fields:
@@ -57,6 +62,7 @@ func (bc BuildCommand) BinaryPath() (string, bool) {
 	if bc.BinaryPathValue == "" {
 		return "", false
 	}
+
 	return bc.BinaryPathValue, true
 }
 
@@ -74,11 +80,13 @@ func (c *Config) GetTarget(name string) (Target, bool) {
 	if target, ok := c.Targets[name]; ok {
 		return target, true
 	}
+
 	if lowered := strings.ToLower(name); lowered != name {
 		if target, ok := c.Targets[lowered]; ok {
 			return target, true
 		}
 	}
+
 	return Target{}, false
 }
 
@@ -113,12 +121,4 @@ func (c *Config) GetCfgFile() string {
 //   - cfgFile: The path to the configuration file to load
 func (c *Config) SetCfgFile(cfgFile string) {
 	c.cfgFile = cfgFile
-}
-
-// NewConfig creates a new Config instance
-//
-// Returns:
-//   - *Config: A new Config instance
-func NewConfig() *Config {
-	return &Config{}
 }

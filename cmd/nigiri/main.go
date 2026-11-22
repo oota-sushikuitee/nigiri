@@ -1,3 +1,4 @@
+// Command nigiri builds and runs specific commits of upstream repositories.
 package main
 
 import (
@@ -16,8 +17,7 @@ func main() {
 
 	// A target that ran and exited non-zero already reported for itself; pass
 	// its status on instead of reporting a nigiri failure.
-	var exitErr *commands.ExitCodeError
-	if errors.As(err, &exitErr) {
+	if exitErr, ok := errors.AsType[*commands.ExitCodeError](err); ok {
 		os.Exit(exitErr.ExitCode())
 	}
 

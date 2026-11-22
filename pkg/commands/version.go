@@ -8,19 +8,19 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Version information (embedded at build time)
+// Version information (embedded at build time).
 var (
-	// Version is the current version of the nigiri CLI
+	// Version is the current version of the nigiri CLI.
 	Version = "dev"
 
-	// Commit is the git commit hash from which the binary was built
+	// Commit is the git commit hash from which the binary was built.
 	Commit = "none"
 
-	// BuildDate is the date and time when the binary was built
+	// BuildDate is the date and time when the binary was built.
 	BuildDate = "unknown"
 )
 
-// versionCommand represents the structure for the version command
+// versionCommand represents the structure for the version command.
 type versionCommand struct {
 	cmd *cobra.Command
 }
@@ -36,11 +36,12 @@ func newVersionCommand() *versionCommand {
 		Use:   "version",
 		Short: "Print the version information",
 		Long:  `Print detailed version information about the nigiri CLI.`,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			return c.executeVersion()
 		},
 	}
 	c.cmd = cmd
+
 	return c
 }
 
@@ -60,5 +61,6 @@ func (c *versionCommand) executeVersion() error {
 	fmt.Fprintf(c.cmd.OutOrStdout(), "  Root dir:   %s\n", nigiriRoot)
 	// Display current time
 	fmt.Fprintf(c.cmd.OutOrStdout(), "  Current time: %s\n", time.Now().Format(time.RFC3339))
+
 	return nil
 }

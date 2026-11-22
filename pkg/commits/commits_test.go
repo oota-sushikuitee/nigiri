@@ -166,11 +166,14 @@ func TestCommit_CalculateShortHash(t *testing.T) {
 			c := &Commit{
 				Hash: tt.hash,
 			}
+
 			err := c.CalculateShortHash()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("CalculateShortHash() error = %v, wantErr %v", err, tt.wantErr)
+
 				return
 			}
+
 			if c.ShortHash != tt.wantShort {
 				t.Errorf("CalculateShortHash() got = %v, want %v", c.ShortHash, tt.wantShort)
 			}

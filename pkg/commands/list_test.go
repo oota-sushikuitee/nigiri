@@ -22,8 +22,10 @@ func TestNewListCommand(t *testing.T) {
 // build date.
 func writeCommitDir(t *testing.T, target, shortHash string, built time.Time) {
 	t.Helper()
+
 	commitDir := filepath.Join(nigiriRoot, target, shortHash)
 	require.NoError(t, os.MkdirAll(commitDir, 0o755))
+
 	metadata := "Target: " + target + "\n" + buildDateField + " " + built.Format(time.RFC3339) + "\n"
 	require.NoError(t, os.WriteFile(filepath.Join(commitDir, buildInfoFileName), []byte(metadata), 0o600))
 }
@@ -31,7 +33,9 @@ func writeCommitDir(t *testing.T, target, shortHash string, built time.Time) {
 // runList runs the list command for the given arguments and returns its output.
 func runList(t *testing.T, args ...string) (string, error) {
 	t.Helper()
+
 	var out bytes.Buffer
+
 	cmd := newListCommand()
 	cmd.cmd.SetOut(&out)
 
@@ -41,6 +45,7 @@ func runList(t *testing.T, args ...string) (string, error) {
 	} else {
 		err = cmd.listTargetCommits(args[0])
 	}
+
 	return out.String(), err
 }
 
@@ -80,6 +85,7 @@ func TestListTargetCommits_NotInstalled(t *testing.T) {
 // date, newest first.
 func TestListTargetCommits_NewestFirst(t *testing.T) {
 	testRoot(t)
+
 	now := time.Now()
 	writeCommitDir(t, "sample", "0000001", now.Add(-2*time.Hour))
 	writeCommitDir(t, "sample", "0000002", now)

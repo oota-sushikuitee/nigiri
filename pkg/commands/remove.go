@@ -6,11 +6,12 @@ import (
 	"strings"
 
 	"github.com/oota-sushikuitee/nigiri/internal/targets"
+	"github.com/oota-sushikuitee/nigiri/pkg/commits"
 	"github.com/oota-sushikuitee/nigiri/pkg/logger"
 	"github.com/spf13/cobra"
 )
 
-// removeCommand represents the structure for the remove command
+// removeCommand represents the structure for the remove command.
 type removeCommand struct {
 	cmd *cobra.Command
 	all bool
@@ -36,6 +37,7 @@ If no commit is specified, the entire target and all its builds will be removed.
 				if len(args) > 0 {
 					return logger.CreateErrorf("cannot specify a target with --all flag")
 				}
+
 				return c.executeRemoveAll()
 			}
 
@@ -48,13 +50,14 @@ If no commit is specified, the entire target and all its builds will be removed.
 			if len(args) > 1 {
 				// If commit is specified, remove only that commit
 				commitHash := args[1]
+
 				return c.executeRemoveCommit(target, commitHash)
 			}
 
 			// Otherwise, remove the entire target
 			return c.executeRemove(target)
 		},
-		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		ValidArgsFunction: func(_ *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 			// Offer tab completion for targets if no arguments provided yet
 			if len(args) == 0 {
 				return c.getCompletionTargets(toComplete), cobra.ShellCompDirectiveNoFileComp
@@ -73,10 +76,11 @@ If no commit is specified, the entire target and all its builds will be removed.
 	flags.BoolVar(&c.all, "all", false, "Remove all targets")
 
 	c.cmd = cmd
+
 	return c
 }
 
-// getCompletionTargets returns a list of available targets for command completion
+// getCompletionTargets returns a list of available targets for command completion.
 func (c *removeCommand) getCompletionTargets(prefix string) []string {
 	entries, err := os.ReadDir(nigiriRoot)
 	if err != nil {
@@ -84,17 +88,20 @@ func (c *removeCommand) getCompletionTargets(prefix string) []string {
 	}
 
 	var targets []string
+
 	for _, entry := range entries {
 		if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") && strings.HasPrefix(entry.Name(), prefix) {
 			targets = append(targets, entry.Name())
 		}
 	}
+
 	return targets
 }
 
-// getCompletionCommits returns a list of available commit hashes for the specified target
+// getCompletionCommits returns a list of available commit hashes for the specified target.
 func (c *removeCommand) getCompletionCommits(target, prefix string) []string {
 	fsTarget := targets.Target{Target: target}
+
 	targetRootDir, err := fsTarget.GetTargetRootDir(nigiriRoot)
 	if err != nil {
 		return nil
@@ -106,11 +113,13 @@ func (c *removeCommand) getCompletionCommits(target, prefix string) []string {
 	}
 
 	var commits []string
+
 	for _, dir := range dirs {
 		if dir.IsDir() && strings.HasPrefix(dir.Name(), prefix) {
 			commits = append(commits, dir.Name())
 		}
 	}
+
 	return commits
 }
 
@@ -124,6 +133,7 @@ func (c *removeCommand) getCompletionCommits(target, prefix string) []string {
 //   - error: Any error encountered during the removal process
 func (c *removeCommand) executeRemove(target string) error {
 	t := targets.Target{Target: target}
+
 	targetRootDir, err := t.GetTargetRootDir(nigiriRoot)
 	if err != nil {
 		return logger.CreateErrorf("target '%s' not found", target)
@@ -131,6 +141,7 @@ func (c *removeCommand) executeRemove(target string) error {
 
 	// Ask for confirmation before removing the entire target
 	c.cmd.Printf("This will remove the target '%s' and all its builds. Continue? (y/n): ", target)
+
 	var confirm string
 	if err := logger.ReadInput(&confirm); err != nil {
 		return logger.CreateErrorf("failed to read confirmation: %w", err)
@@ -138,6 +149,7 @@ func (c *removeCommand) executeRemove(target string) error {
 
 	if strings.ToLower(confirm) != "y" {
 		c.cmd.Println("Operation cancelled.")
+
 		return nil
 	}
 
@@ -146,6 +158,7 @@ func (c *removeCommand) executeRemove(target string) error {
 	}
 
 	c.cmd.Printf("Target '%s' removed successfully.\n", target)
+
 	return nil
 }
 
@@ -159,14 +172,16 @@ func (c *removeCommand) executeRemove(target string) error {
 //   - error: Any error encountered during the removal process
 func (c *removeCommand) executeRemoveCommit(target, commitHash string) error {
 	t := targets.Target{Target: target}
+
 	targetRootDir, err := t.GetTargetRootDir(nigiriRoot)
 	if err != nil {
 		return logger.CreateErrorf("target '%s' not found", target)
 	}
 
 	// Check if commit hash is valid
-	if len(commitHash) < 7 {
-		return logger.CreateErrorf("commit hash is too short: %s (minimum 7 characters)", commitHash)
+	if len(commitHash) < commits.ShortHashLength {
+		return logger.CreateErrorf("commit hash is too short: %s (minimum %d characters)",
+			commitHash, commits.ShortHashLength)
 	}
 
 	// Find directories that match the commit hash prefix
@@ -176,6 +191,7 @@ func (c *removeCommand) executeRemoveCommit(target, commitHash string) error {
 	}
 
 	var matchingDirs []string
+
 	for _, dir := range dirs {
 		if dir.IsDir() && commitDirMatches(dir.Name(), commitHash) {
 			matchingDirs = append(matchingDirs, dir.Name())
@@ -188,9 +204,11 @@ func (c *removeCommand) executeRemoveCommit(target, commitHash string) error {
 
 	if len(matchingDirs) > 1 {
 		c.cmd.Println("Multiple commits match the provided hash:")
+
 		for i, dir := range matchingDirs {
 			c.cmd.Printf("%d. %s\n", i+1, dir)
 		}
+
 		return logger.CreateErrorf("please provide a more specific commit hash")
 	}
 
@@ -200,6 +218,7 @@ func (c *removeCommand) executeRemoveCommit(target, commitHash string) error {
 
 	// Ask for confirmation
 	c.cmd.Printf("Remove build for commit %s? (y/n): ", fullCommitHash)
+
 	var confirm string
 	if err := logger.ReadInput(&confirm); err != nil {
 		return logger.CreateErrorf("failed to read confirmation: %w", err)
@@ -207,6 +226,7 @@ func (c *removeCommand) executeRemoveCommit(target, commitHash string) error {
 
 	if strings.ToLower(confirm) != "y" {
 		c.cmd.Println("Operation cancelled.")
+
 		return nil
 	}
 
@@ -215,6 +235,7 @@ func (c *removeCommand) executeRemoveCommit(target, commitHash string) error {
 	}
 
 	c.cmd.Printf("Build for commit %s of target '%s' removed successfully.\n", fullCommitHash, target)
+
 	return nil
 }
 
@@ -225,6 +246,7 @@ func (c *removeCommand) executeRemoveCommit(target, commitHash string) error {
 func (c *removeCommand) executeRemoveAll() error {
 	// Ask for confirmation before removing all targets
 	c.cmd.Print("This will remove ALL targets and ALL builds. This cannot be undone. Continue? (y/n): ")
+
 	var confirm string
 	if err := logger.ReadInput(&confirm); err != nil {
 		return logger.CreateErrorf("failed to read confirmation: %w", err)
@@ -232,6 +254,7 @@ func (c *removeCommand) executeRemoveAll() error {
 
 	if strings.ToLower(confirm) != "y" {
 		c.cmd.Println("Operation cancelled.")
+
 		return nil
 	}
 
@@ -240,23 +263,29 @@ func (c *removeCommand) executeRemoveAll() error {
 	if err != nil {
 		if os.IsNotExist(err) {
 			c.cmd.Println("No targets to remove.")
+
 			return nil
 		}
+
 		return logger.CreateErrorf("failed to read nigiri root directory: %w", err)
 	}
 
 	removedCount := 0
+
 	for _, entry := range entries {
 		if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") {
 			targetPath := filepath.Join(nigiriRoot, entry.Name())
 			if err := os.RemoveAll(targetPath); err != nil {
 				c.cmd.Printf("Warning: Failed to remove target '%s': %v\n", entry.Name(), err)
+
 				continue
 			}
+
 			removedCount++
 		}
 	}
 
 	c.cmd.Printf("%d targets removed successfully.\n", removedCount)
+
 	return nil
 }

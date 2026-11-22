@@ -25,6 +25,7 @@ func pipedWriter() io.Writer {
 
 func TestBuildShell(t *testing.T) {
 	t.Parallel()
+
 	shell, args := buildShell()
 	assert.Equal(t, "/bin/sh", shell)
 	assert.Equal(t, []string{"-c"}, args)
@@ -44,6 +45,7 @@ func TestRunBuildCommand_ReportsFailure(t *testing.T) {
 // context stops the processes the build shell spawned, not just the shell.
 func TestRunBuildCommand_TimeoutKillsProcessGroup(t *testing.T) {
 	pidFile := filepath.Join(t.TempDir(), "child.pid")
+
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
@@ -68,21 +70,26 @@ func TestRunBuildCommand_WaitDelayBoundsOrphanedOutput(t *testing.T) {
 	err := runBuildCommand(context.Background(), "sleep 60 &", pipedWriter(), pipedWriter(), nil, 500*time.Millisecond)
 	elapsed := time.Since(start)
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Less(t, elapsed, 30*time.Second)
 }
 
 // readChildPID reads the pid the build shell recorded for its background child.
 func readChildPID(t *testing.T, pidFile string) int {
 	t.Helper()
+
 	var pid int
+
 	require.Eventually(t, func() bool {
 		data, err := os.ReadFile(pidFile)
 		if err != nil {
 			return false
 		}
+
 		pid, err = strconv.Atoi(strings.TrimSpace(string(data)))
+
 		return err == nil && pid > 0
 	}, 10*time.Second, 100*time.Millisecond, "build shell never recorded its child pid")
+
 	return pid
 }

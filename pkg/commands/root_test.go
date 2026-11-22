@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewRootCommand(t *testing.T) {
@@ -22,10 +23,11 @@ func TestExecute(t *testing.T) {
 
 func TestExecuteVersionFlag(t *testing.T) {
 	cmd := NewRootCommand()
+
 	var out bytes.Buffer
 	cmd.cmd.SetOut(&out)
 	cmd.cmd.SetArgs([]string{"--version"})
 	err := cmd.Execute()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Contains(t, out.String(), Version)
 }

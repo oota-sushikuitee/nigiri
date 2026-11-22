@@ -1,3 +1,4 @@
+// Package dirutils provides directory listing, sizing, and cleanup helpers.
 package dirutils
 
 import (
@@ -9,6 +10,8 @@ import (
 
 	"github.com/oota-sushikuitee/nigiri/pkg/logger"
 )
+
+const bytesPerKB = 1 << 10
 
 // DirEntry represents a directory entry with its name, time, and whether it's a directory
 //
@@ -26,7 +29,7 @@ type DirEntry struct {
 	IsDir      bool
 }
 
-// SortDirEntriesByTime sorts directory entries by modification time
+// SortDirEntriesByTime sorts directory entries by modification time.
 func SortDirEntriesByTime(entries []DirEntry, descending bool) {
 	if descending {
 		sort.Slice(entries, func(i, j int) bool {
@@ -39,7 +42,7 @@ func SortDirEntriesByTime(entries []DirEntry, descending bool) {
 	}
 }
 
-// SortDirEntriesByName sorts directory entries by name
+// SortDirEntriesByName sorts directory entries by name.
 func SortDirEntriesByName(entries []DirEntry, descending bool) {
 	if descending {
 		sort.Slice(entries, func(i, j int) bool {
@@ -52,7 +55,7 @@ func SortDirEntriesByName(entries []DirEntry, descending bool) {
 	}
 }
 
-// GetDirEntries returns a list of directory entries
+// GetDirEntries returns a list of directory entries.
 func GetDirEntries(dir string, filter string) ([]DirEntry, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -60,6 +63,7 @@ func GetDirEntries(dir string, filter string) ([]DirEntry, error) {
 	}
 
 	var result []DirEntry
+
 	for _, entry := range entries {
 		// Skip hidden files/directories (starting with .) if filter doesn't explicitly include them
 		if strings.HasPrefix(entry.Name(), ".") && !strings.Contains(filter, ".") {
@@ -80,7 +84,7 @@ func GetDirEntries(dir string, filter string) ([]DirEntry, error) {
 			Name:       entry.Name(),
 			ModTime:    info.ModTime(),
 			IsDir:      entry.IsDir(),
-			SizeInKB:   info.Size() / 1024,
+			SizeInKB:   info.Size() / bytesPerKB,
 			Permission: info.Mode().Perm(),
 		})
 	}
@@ -88,30 +92,40 @@ func GetDirEntries(dir string, filter string) ([]DirEntry, error) {
 	return result, nil
 }
 
-// GetDirSize calculates the total size of a directory in bytes
+// GetDirSize calculates the total size of a directory in bytes.
 func GetDirSize(path string) (int64, error) {
 	var size int64
+
 	err := filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
+
 		if !info.IsDir() {
 			size += info.Size()
 		}
+
 		return nil
 	})
-	return size, err
+	if err != nil {
+		return size, logger.CreateErrorf("failed to calculate size of %s: %w", path, err)
+	}
+
+	return size, nil
 }
 
-// EnsureDirExists ensures that the specified directory exists
+// EnsureDirExists ensures that the specified directory exists.
 func EnsureDirExists(dir string) error {
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		return os.MkdirAll(dir, 0755)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return logger.CreateErrorf("failed to create directory %s: %w", dir, err)
+		}
 	}
+
 	return nil
 }
 
-// CleanOldDirs removes old directories based on a maximum count or age
+// CleanOldDirs removes old directories based on a maximum count or age.
 func CleanOldDirs(parentDir string, maxDirs int, maxAge time.Duration) error {
 	entries, err := os.ReadDir(parentDir)
 	if err != nil {
@@ -119,12 +133,14 @@ func CleanOldDirs(parentDir string, maxDirs int, maxAge time.Duration) error {
 	}
 
 	var dirs []DirEntry
+
 	for _, entry := range entries {
 		if entry.IsDir() {
 			info, err := entry.Info()
 			if err != nil {
 				continue
 			}
+
 			dirs = append(dirs, DirEntry{
 				Name:    entry.Name(),
 				ModTime: info.ModTime(),
@@ -138,7 +154,7 @@ func CleanOldDirs(parentDir string, maxDirs int, maxAge time.Duration) error {
 
 	// Remove old directories by count
 	if maxDirs > 0 && len(dirs) > maxDirs {
-		for i := 0; i < len(dirs)-maxDirs; i++ {
+		for i := range len(dirs) - maxDirs {
 			dirToRemove := filepath.Join(parentDir, dirs[i].Name)
 			if err := os.RemoveAll(dirToRemove); err != nil {
 				return logger.CreateErrorf("failed to remove directory %s: %w", dirToRemove, err)
@@ -171,5 +187,6 @@ func CleanOldDirs(parentDir string, maxDirs int, maxAge time.Duration) error {
 //   - bool: True if the file or directory exists, false otherwise
 func Exists(path string) bool {
 	_, err := os.Stat(path)
+
 	return !os.IsNotExist(err)
 }
