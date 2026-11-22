@@ -1,38 +1,29 @@
-DEFAULT_GOAL := build
+.DEFAULT_GOAL := build
 
 .PHONY: build
-build:
+build: ## Build the project
 	go build -o bin/nigiri ./cmd/nigiri
 
 .PHONY: run
-run:
+run: ## Run the project
 	go run ./cmd/nigiri
 
 .PHONY: test
-test:
+test: ## Run tests
 	go test ./...
 
 .PHONY: lint
-lint:
+lint: ## Run linter
 	golangci-lint run
 
 .PHONY: fmt
-fmt:
+fmt: ## Format code
 	go fmt ./...
 
 .PHONY: clean
-clean:
+clean: ## Clean up
 	rm -f bin/nigiri
 
 .PHONY: help
-help:
-	@echo "Usage: make <target>"
-	@echo ""
-	@echo "Targets:"
-	@echo "  build		Build the project"
-	@echo "  run		Run the project"
-	@echo "  test		Run tests"
-	@echo "  lint		Run linter"
-	@echo "  fmt		Format code"
-	@echo "  clean		Clean up"
-	@echo "  help		Show this help message"
+help: ## Show this help message
+	@awk 'BEGIN {FS = ":.*## "; print "Usage: make <target>\n\nTargets:"} /^[a-zA-Z_-]+:.*## / {printf "  %-8s %s\n", $$1, $$2}' $(MAKEFILE_LIST)

@@ -1,12 +1,16 @@
 package commands
 
 import (
+	_ "embed"
 	"os"
 	"path/filepath"
 
 	"github.com/oota-sushikuitee/nigiri/pkg/logger"
 	"github.com/spf13/cobra"
 )
+
+//go:embed sample-config.yml
+var sampleConfig []byte
 
 // initCommand represents the structure for the init command.
 type initCommand struct {
@@ -63,50 +67,8 @@ func (c *initCommand) executeInit() error {
 		}
 	}
 
-	// Create a sample configuration
-	sampleConfig := `# Nigiri configuration file
-# Define your targets below
-
-targets:
-  # Example target
-  sample-project:
-    source: https://github.com/oota-sushikuitee/nigiri
-    default-branch: main
-    # The directory within the repository to run the build command (optional)
-    working-directory: ""
-    # Whether to keep only the binary and remove source code after build (optional)
-    binary-only: false
-    build-command:
-      linux: make build
-      windows: make build
-      darwin: make build
-      # Path to the built binary (relative to working directory or repository root)
-      binary-path: bin/nigiri
-    env:
-      - "GO111MODULE=on"
-      - "CGO_ENABLED=0"
-
-  # You can add more targets here
-  # another-project:
-  #   source: https://github.com/oota-sushikuitee/nigiri
-  #   default-branch: master
-  #   working-directory: "cmd/app"
-  #   binary-only: true
-  #   build-command:
-  #     linux: make linux
-  #     windows: make windows
-  #     darwin: make darwin
-  #     binary-path: bin/app
-
-# Default settings for all targets
-defaults:
-  linux: make build
-  windows: make build
-  darwin: make build
-`
-
 	// Write the configuration file
-	if err := os.WriteFile(configFilePath, []byte(sampleConfig), 0o644); err != nil {
+	if err := os.WriteFile(configFilePath, sampleConfig, 0o644); err != nil {
 		return logger.CreateErrorf("failed to write configuration file: %w", err)
 	}
 
