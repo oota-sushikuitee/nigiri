@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	cfgmodel "github.com/oota-sushikuitee/nigiri/internal/models/config"
 	"github.com/oota-sushikuitee/nigiri/internal/targets"
 	"github.com/oota-sushikuitee/nigiri/pkg/commits"
 	"github.com/oota-sushikuitee/nigiri/pkg/logger"
@@ -24,12 +25,7 @@ type runCommand struct {
 	cmd *cobra.Command
 }
 
-func newRunCommand() *runCommand {
-	c := &runCommand{}
-	cmd := &cobra.Command{
-		Use:   "run target [commit] [args...]",
-		Short: "Run a built target",
-		Long: `Run a built target with optional arguments.
+const runLongHelp = `Run a built target with optional arguments.
 If commit is not specified, the latest built commit will be used.
 You can use HEAD (or head) to explicitly specify the latest commit.
 Arguments will be properly passed to the target command:
@@ -52,7 +48,14 @@ Examples:
 
   # Explicitly separate nigiri arguments from target arguments
   nigiri run <target> <commit> -- -v --flag=value
-`,
+`
+
+func newRunCommand() *runCommand {
+	c := &runCommand{}
+	cmd := &cobra.Command{
+		Use:                "run target [commit] [args...]",
+		Short:              "Run a built target",
+		Long:               runLongHelp,
 		DisableFlagParsing: true, // Let us handle the flags manually
 		RunE: func(cmd *cobra.Command, args []string) error {
 			inv, err := parseRunArgs(args)
@@ -124,46 +127,11 @@ type runInvocation struct {
 func parseRunArgs(args []string) (runInvocation, error) {
 	var inv runInvocation
 
-	// Arguments after the first "--" always belong to the target.
-	before := args
+	before, afterDash := splitAtDoubleDash(args)
 
-	var afterDash []string
-
-	for i, arg := range args {
-		if arg == "--" {
-			before, afterDash = args[:i], args[i+1:]
-
-			break
-		}
-	}
-
-	i := 0
-
-consume:
-	for i < len(before) {
-		arg := before[i]
-		switch {
-		case arg == "--help" || arg == "-h":
-			inv.help = true
-			i++
-		case arg == "--config" || arg == "-c":
-			if i+1 >= len(before) {
-				return inv, logger.CreateErrorf("flag needs an argument: %s", arg)
-			}
-
-			inv.configFile = before[i+1]
-			i += 2
-		case strings.HasPrefix(arg, "--config="):
-			inv.configFile = strings.TrimPrefix(arg, "--config=")
-			i++
-		case strings.HasPrefix(arg, "-c="):
-			inv.configFile = strings.TrimPrefix(arg, "-c=")
-			i++
-		default:
-			// The first argument that is none of nigiri's own flags is the
-			// target name; everything from there on is positional.
-			break consume
-		}
+	i, err := consumeRunFlags(before, &inv)
+	if err != nil {
+		return inv, err
 	}
 
 	rest := before[i:]
@@ -186,6 +154,51 @@ consume:
 	return inv, nil
 }
 
+// splitAtDoubleDash separates the arguments after the first "--", which
+// always belong to the target.
+func splitAtDoubleDash(args []string) ([]string, []string) {
+	for i, arg := range args {
+		if arg == "--" {
+			return args[:i], args[i+1:]
+		}
+	}
+
+	return args, nil
+}
+
+// consumeRunFlags records nigiri's own leading flags in inv and returns the
+// index of the first argument that is not one of them: the target name.
+func consumeRunFlags(args []string, inv *runInvocation) (int, error) {
+	i := 0
+
+	for i < len(args) {
+		arg := args[i]
+
+		switch {
+		case arg == "--help" || arg == "-h":
+			inv.help = true
+			i++
+		case arg == "--config" || arg == "-c":
+			if i+1 >= len(args) {
+				return i, logger.CreateErrorf("flag needs an argument: %s", arg)
+			}
+
+			inv.configFile = args[i+1]
+			i += 2
+		case strings.HasPrefix(arg, "--config="):
+			inv.configFile = strings.TrimPrefix(arg, "--config=")
+			i++
+		case strings.HasPrefix(arg, "-c="):
+			inv.configFile = strings.TrimPrefix(arg, "-c=")
+			i++
+		default:
+			return i, nil
+		}
+	}
+
+	return i, nil
+}
+
 func (c *runCommand) getCompletionTargets(prefix string) []string {
 	return getConfiguredTargets(prefix)
 }
@@ -202,75 +215,11 @@ func (c *runCommand) executeRun(target, commitHash string, args []string) error 
 		return err
 	}
 
-	// Use latest commit if none specified
-	var runDir string
-
-	if commitHash == "" {
-		// Find the most recent commit directory
-		dirs, err := os.ReadDir(targetRootDir)
-		if err != nil {
-			return logger.CreateErrorf("failed to read target directory: %w", err)
-		}
-
-		var (
-			latestDir   string
-			latestBuilt time.Time
-		)
-
-		for _, dir := range dirs {
-			if dir.IsDir() {
-				commitDir := filepath.Join(targetRootDir, dir.Name())
-
-				info, err := os.Stat(commitDir)
-				if err != nil {
-					continue
-				}
-
-				built := buildTime(commitDir, info.ModTime())
-				if latestDir == "" || built.After(latestBuilt) {
-					latestBuilt = built
-					latestDir = dir.Name()
-				}
-			}
-		}
-
-		if latestDir == "" {
-			return logger.CreateErrorf("no builds found for target %s", target)
-		}
-
-		runDir = filepath.Join(targetRootDir, latestDir)
-		c.cmd.Printf("Using latest commit: %s\n", latestDir)
-	} else {
-		// For specified commit
-		if len(commitHash) < commits.ShortHashLength {
-			return logger.CreateErrorf("commit hash is too short: %s (minimum %d characters)",
-				commitHash, commits.ShortHashLength)
-		}
-
-		// Find directory matching the commit hash
-		dirs, err := os.ReadDir(targetRootDir)
-		if err != nil {
-			return logger.CreateErrorf("failed to read target directory: %w", err)
-		}
-
-		var matchingDir string
-
-		for _, dir := range dirs {
-			if dir.IsDir() && commitDirMatches(dir.Name(), commitHash) {
-				matchingDir = dir.Name()
-
-				break
-			}
-		}
-
-		if matchingDir == "" {
-			return logger.CreateErrorf("no build found for commit %s", commitHash)
-		}
-
-		runDir = filepath.Join(targetRootDir, matchingDir)
+	runDir, err := c.resolveRunDir(targetRootDir, target, commitHash)
+	if err != nil {
+		return err
 	}
 
-	// Get configuration for working directory setting
 	cm := newConfigManager()
 	if err := cm.LoadCfgFile(); err != nil {
 		return logger.CreateErrorf("failed to load config: %w", err)
@@ -281,99 +230,208 @@ func (c *runCommand) executeRun(target, commitHash string, args []string) error 
 		return logger.CreateErrorf("target '%s' not found in configuration", target)
 	}
 
-	// Look for the binary in the commit directory first
-	binaryPath := filepath.Join(runDir, "bin")
-	if _, err := os.Stat(binaryPath); os.IsNotExist(err) {
-		c.cmd.Printf("Binary not found in commit/bin directory, looking for alternative locations...\n")
-
-		// Check for compressed source
-		srcArchive := filepath.Join(runDir, "source.tar.gz")
-		srcDir := filepath.Join(runDir, "src")
-
-		// If source archive exists but src directory doesn't, extract it.
-		// Archive entries are stored relative to the source tree root, so the
-		// archive must be extracted into src rather than into the commit
-		// directory, where it would scatter the repository over the build
-		// artifacts.
-		if _, err := os.Stat(srcArchive); err == nil {
-			if _, err := os.Stat(srcDir); os.IsNotExist(err) {
-				c.cmd.Printf("Extracting source archive...\n")
-
-				if err := os.MkdirAll(srcDir, 0o755); err != nil {
-					return logger.CreateErrorf("failed to create source directory: %w", err)
-				}
-
-				if err := extractTarGz(srcArchive, srcDir); err != nil {
-					// A half-extracted tree would make the next run skip extraction.
-					if rmErr := os.RemoveAll(srcDir); rmErr != nil {
-						logger.Warnf("Failed to remove incomplete source directory %s: %v", srcDir, rmErr)
-					}
-
-					return logger.CreateErrorf("failed to extract source archive: %w", err)
-				}
-			}
-		}
-
-		// At this point, we should have a src directory (either it was there or we extracted it)
-		if _, err := os.Stat(srcDir); os.IsNotExist(err) {
-			return logger.CreateErrorf("source directory not found: %s", srcDir)
-		}
-
-		// Apply working directory if specified
-		workDir := srcDir
-		if targetCfg.WorkingDirectory != "" {
-			workDir = filepath.Join(srcDir, targetCfg.WorkingDirectory)
-			if _, err := os.Stat(workDir); os.IsNotExist(err) {
-				return logger.CreateErrorf("working directory '%s' not found in source", targetCfg.WorkingDirectory)
-			}
-		}
-
-		// Get binary path from config
-		if binPath, ok := targetCfg.BuildCommand.BinaryPath(); ok {
-			binaryPath = filepath.Join(workDir, binPath)
-		} else {
-			// Try common locations for the binary
-			binaryPath = filepath.Join(workDir, target)
-			// If binary not found directly, try common locations
-			if _, err := os.Stat(binaryPath); os.IsNotExist(err) {
-				// Try bin/ directory
-				altPath := filepath.Join(workDir, "bin", target)
-				if _, err := os.Stat(altPath); err == nil {
-					binaryPath = altPath
-				} else {
-					// Try build/ directory
-					altPath = filepath.Join(workDir, "build", target)
-					if _, err := os.Stat(altPath); err == nil {
-						binaryPath = altPath
-					}
-				}
-			}
-		}
+	binaryPath, err := c.locateBinary(runDir, target, targetCfg)
+	if err != nil {
+		return err
 	}
 
 	if _, err := os.Stat(binaryPath); os.IsNotExist(err) {
 		return logger.CreateErrorf("binary not found at %s", binaryPath)
 	}
 
-	// Make sure binary is executable (not needed on Windows)
 	if runtime.GOOS != "windows" {
 		if err := os.Chmod(binaryPath, 0o755); err != nil {
 			return logger.CreateErrorf("failed to make binary executable: %w", err)
 		}
 	}
 
-	// Setup command execution with proper argument handling
+	return c.runBinary(binaryPath, args, targetCfg.Env)
+}
+
+// resolveRunDir picks the newest build by recorded build date when commitHash
+// is empty, and otherwise the build directory matching commitHash.
+func (c *runCommand) resolveRunDir(targetRootDir, target, commitHash string) (string, error) {
+	if commitHash == "" {
+		latestDir, err := latestBuildDir(targetRootDir)
+		if err != nil {
+			return "", err
+		}
+
+		if latestDir == "" {
+			return "", logger.CreateErrorf("no builds found for target %s", target)
+		}
+
+		c.cmd.Printf("Using latest commit: %s\n", latestDir)
+
+		return filepath.Join(targetRootDir, latestDir), nil
+	}
+
+	if len(commitHash) < commits.ShortHashLength {
+		return "", logger.CreateErrorf("commit hash is too short: %s (minimum %d characters)",
+			commitHash, commits.ShortHashLength)
+	}
+
+	matchingDirs, err := matchingBuildDirs(targetRootDir, commitHash)
+	if err != nil {
+		return "", err
+	}
+
+	if len(matchingDirs) == 0 {
+		return "", logger.CreateErrorf("no build found for commit %s", commitHash)
+	}
+
+	return filepath.Join(targetRootDir, matchingDirs[0]), nil
+}
+
+func latestBuildDir(targetRootDir string) (string, error) {
+	dirs, err := os.ReadDir(targetRootDir)
+	if err != nil {
+		return "", logger.CreateErrorf("failed to read target directory: %w", err)
+	}
+
+	var (
+		latestDir   string
+		latestBuilt time.Time
+	)
+
+	for _, dir := range dirs {
+		if !dir.IsDir() {
+			continue
+		}
+
+		commitDir := filepath.Join(targetRootDir, dir.Name())
+
+		info, err := os.Stat(commitDir)
+		if err != nil {
+			continue
+		}
+
+		built := buildTime(commitDir, info.ModTime())
+		if latestDir == "" || built.After(latestBuilt) {
+			latestBuilt = built
+			latestDir = dir.Name()
+		}
+	}
+
+	return latestDir, nil
+}
+
+func matchingBuildDirs(targetRootDir, commitHash string) ([]string, error) {
+	dirs, err := os.ReadDir(targetRootDir)
+	if err != nil {
+		return nil, logger.CreateErrorf("failed to read target directory: %w", err)
+	}
+
+	var matching []string
+
+	for _, dir := range dirs {
+		if dir.IsDir() && commitDirMatches(dir.Name(), commitHash) {
+			matching = append(matching, dir.Name())
+		}
+	}
+
+	return matching, nil
+}
+
+// locateBinary prefers the binary captured at build time and otherwise looks
+// in the source tree, extracting the source archive first if needed.
+func (c *runCommand) locateBinary(runDir, target string, targetCfg cfgmodel.Target) (string, error) {
+	binaryPath := filepath.Join(runDir, "bin")
+	if _, err := os.Stat(binaryPath); !os.IsNotExist(err) {
+		return binaryPath, nil
+	}
+
+	c.cmd.Printf("Binary not found in commit/bin directory, looking for alternative locations...\n")
+
+	srcDir, err := c.ensureSourceTree(runDir)
+	if err != nil {
+		return "", err
+	}
+
+	workDir := srcDir
+	if targetCfg.WorkingDirectory != "" {
+		workDir = filepath.Join(srcDir, targetCfg.WorkingDirectory)
+		if _, err := os.Stat(workDir); os.IsNotExist(err) {
+			return "", logger.CreateErrorf("working directory '%s' not found in source", targetCfg.WorkingDirectory)
+		}
+	}
+
+	if binPath, ok := targetCfg.BuildCommand.BinaryPath(); ok {
+		return filepath.Join(workDir, binPath), nil
+	}
+
+	return binaryCandidate(workDir, target), nil
+}
+
+// ensureSourceTree extracts the source archive into src rather than into the
+// commit directory: archive entries are stored relative to the source tree
+// root, so extracting one level up would scatter the repository over the build
+// artifacts.
+func (c *runCommand) ensureSourceTree(runDir string) (string, error) {
+	srcArchive := filepath.Join(runDir, "source.tar.gz")
+	srcDir := filepath.Join(runDir, "src")
+
+	if _, err := os.Stat(srcArchive); err == nil {
+		if _, err := os.Stat(srcDir); os.IsNotExist(err) {
+			if err := c.extractSource(srcArchive, srcDir); err != nil {
+				return "", err
+			}
+		}
+	}
+
+	if _, err := os.Stat(srcDir); os.IsNotExist(err) {
+		return "", logger.CreateErrorf("source directory not found: %s", srcDir)
+	}
+
+	return srcDir, nil
+}
+
+func (c *runCommand) extractSource(srcArchive, srcDir string) error {
+	c.cmd.Printf("Extracting source archive...\n")
+
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		return logger.CreateErrorf("failed to create source directory: %w", err)
+	}
+
+	if err := extractTarGz(srcArchive, srcDir); err != nil {
+		// A half-extracted tree would make the next run skip extraction.
+		if rmErr := os.RemoveAll(srcDir); rmErr != nil {
+			logger.Warnf("Failed to remove incomplete source directory %s: %v", srcDir, rmErr)
+		}
+
+		return logger.CreateErrorf("failed to extract source archive: %w", err)
+	}
+
+	return nil
+}
+
+// binaryCandidate returns the first existing of <target>, bin/<target>, and
+// build/<target> under workDir, or <target> when none exists.
+func binaryCandidate(workDir, target string) string {
+	binaryPath := filepath.Join(workDir, target)
+	if _, err := os.Stat(binaryPath); !os.IsNotExist(err) {
+		return binaryPath
+	}
+
+	for _, dir := range []string{"bin", "build"} {
+		altPath := filepath.Join(workDir, dir, target)
+		if _, err := os.Stat(altPath); err == nil {
+			return altPath
+		}
+	}
+
+	return binaryPath
+}
+
+func (c *runCommand) runBinary(binaryPath string, args, env []string) error {
 	cmd := exec.CommandContext(context.Background(), binaryPath, args...)
 	cmd.Stdout = c.cmd.OutOrStdout()
 	cmd.Stderr = c.cmd.ErrOrStderr()
 	cmd.Stdin = os.Stdin
-
-	// Set working directory to binary's directory
 	cmd.Dir = filepath.Dir(binaryPath)
 
-	// Add any environment variables from config
-	if len(targetCfg.Env) > 0 {
-		cmd.Env = append(os.Environ(), targetCfg.Env...)
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
 	}
 
 	c.cmd.Printf("Running %s with args: %v\n", binaryPath, args)
@@ -410,7 +468,6 @@ const (
 )
 
 func extractTarGz(tarGzPath, destDir string) error {
-	// Open the tar.gz file
 	file, err := os.Open(tarGzPath)
 	if err != nil {
 		return fmt.Errorf("failed to open archive: %w", err)
@@ -421,7 +478,6 @@ func extractTarGz(tarGzPath, destDir string) error {
 		}
 	}()
 
-	// Create gzip reader
 	gzipReader, err := gzip.NewReader(file)
 	if err != nil {
 		return fmt.Errorf("failed to create gzip reader: %w", err)
@@ -456,33 +512,39 @@ func extractTarGz(tarGzPath, destDir string) error {
 			return fmt.Errorf("tar reading error: %w", err)
 		}
 
-		// Joining with "." turns absolute names into root-relative ones.
-		name := filepath.Join(".", header.Name) //nolint:gosec // G305: root confines every path to destDir
-		if header.Typeflag != tar.TypeDir {
-			if err := root.MkdirAll(filepath.Dir(name), extractDirPerm); err != nil {
-				return fmt.Errorf("failed to create parent directory for %s: %w", header.Name, err)
-			}
+		if err := extractTarEntry(tarReader, root, header); err != nil {
+			return err
 		}
+	}
 
-		switch header.Typeflag {
-		case tar.TypeDir:
-			if err := root.MkdirAll(name, extractDirPerm); err != nil {
-				return fmt.Errorf("failed to create directory: %w", err)
-			}
-		case tar.TypeSymlink:
-			if err := root.Symlink(header.Linkname, name); err != nil {
-				return fmt.Errorf("failed to create symlink: %w", err)
-			}
-		case tar.TypeLink:
-			//nolint:gosec // G305: root confines every path to destDir
-			if err := root.Link(filepath.Join(".", header.Linkname), name); err != nil {
-				return fmt.Errorf("failed to create hard link: %w", err)
-			}
-		default:
-			if err := extractFileFromTar(tarReader, root, name, header.FileInfo().Mode().Perm(), header.Size); err != nil {
-				return err
-			}
+	return nil
+}
+
+func extractTarEntry(tarReader *tar.Reader, root *os.Root, header *tar.Header) error {
+	// Joining with "." turns absolute names into root-relative ones.
+	name := filepath.Join(".", header.Name) //nolint:gosec // G305: root confines every path to destDir
+	if header.Typeflag != tar.TypeDir {
+		if err := root.MkdirAll(filepath.Dir(name), extractDirPerm); err != nil {
+			return fmt.Errorf("failed to create parent directory for %s: %w", header.Name, err)
 		}
+	}
+
+	switch header.Typeflag {
+	case tar.TypeDir:
+		if err := root.MkdirAll(name, extractDirPerm); err != nil {
+			return fmt.Errorf("failed to create directory: %w", err)
+		}
+	case tar.TypeSymlink:
+		if err := root.Symlink(header.Linkname, name); err != nil {
+			return fmt.Errorf("failed to create symlink: %w", err)
+		}
+	case tar.TypeLink:
+		//nolint:gosec // G305: root confines every path to destDir
+		if err := root.Link(filepath.Join(".", header.Linkname), name); err != nil {
+			return fmt.Errorf("failed to create hard link: %w", err)
+		}
+	default:
+		return extractFileFromTar(tarReader, root, name, header.FileInfo().Mode().Perm(), header.Size)
 	}
 
 	return nil
@@ -518,7 +580,6 @@ func extractFileFromTar(
 		return fmt.Errorf("archive entry %s is truncated: wrote %d of %d bytes", filePath, written, size)
 	}
 
-	// Set file permissions
 	if err := file.Chmod(mode); err != nil {
 		return fmt.Errorf("failed to set file permissions: %w", err)
 	}

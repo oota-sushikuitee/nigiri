@@ -136,19 +136,9 @@ func (c *cleanupCommand) executeCleanup(target string) error {
 		return fmt.Errorf("target '%s' not found", target)
 	}
 
-	// Get all builds for this target
-	entries, err := dirutils.GetDirEntries(targetRootDir, "")
+	builds, err := listBuildsNewestFirst(targetRootDir)
 	if err != nil {
-		return fmt.Errorf("failed to read target directory: %w", err)
-	}
-
-	// Filter to include only directories
-	var builds []dirutils.DirEntry
-
-	for _, entry := range entries {
-		if entry.IsDir {
-			builds = append(builds, entry)
-		}
+		return err
 	}
 
 	if len(builds) == 0 {
@@ -157,72 +147,15 @@ func (c *cleanupCommand) executeCleanup(target string) error {
 		return nil
 	}
 
-	// Retention must follow when a build was produced, not the directory mtime,
-	// which running or extracting a build rewrites.
-	for i := range builds {
-		buildPath := filepath.Join(targetRootDir, builds[i].Name)
-		builds[i].ModTime = buildTime(buildPath, builds[i].ModTime)
-	}
-
-	// Sort by build time (newest first)
-	dirutils.SortDirEntriesByTime(builds, true)
-
-	// Determine which builds to remove
-	var buildsToRemove []dirutils.DirEntry
-
-	// By count
-	if c.maxBuilds > 0 && len(builds) > c.maxBuilds {
-		buildsToRemove = append(buildsToRemove, builds[c.maxBuilds:]...)
-	}
-
-	// By age
-	if c.maxAge > 0 {
-		maxAgeDuration := time.Duration(c.maxAge) * hoursPerDay * time.Hour
-		now := time.Now()
-
-		for _, build := range builds {
-			// Skip builds already marked for removal
-			alreadyMarked := false
-
-			for _, markedBuild := range buildsToRemove {
-				if build.Name == markedBuild.Name {
-					alreadyMarked = true
-
-					break
-				}
-			}
-
-			if !alreadyMarked && now.Sub(build.ModTime) > maxAgeDuration {
-				buildsToRemove = append(buildsToRemove, build)
-			}
-		}
-	}
-
+	buildsToRemove := c.selectBuildsToRemove(builds)
 	if len(buildsToRemove) == 0 {
 		c.cmd.Printf("No builds to remove for target '%s'.\n", target)
 
 		return nil
 	}
 
-	// Calculate total space to be freed
-	var totalSizeToFree int64
-
-	for _, build := range buildsToRemove {
-		buildPath := filepath.Join(targetRootDir, build.Name)
-
-		size, err := dirutils.GetDirSize(buildPath)
-		if err == nil {
-			totalSizeToFree += size
-		}
-	}
-
-	// Show what will be removed
-	c.cmd.Printf("Found %d builds to remove for target '%s'.\n", len(buildsToRemove), target)
-	c.cmd.Printf("This will free approximately %.2f MB of disk space.\n", toMB(totalSizeToFree))
-
-	for _, build := range buildsToRemove {
-		c.cmd.Printf("  %s (built on %s)\n", build.Name, build.ModTime.Format("2006-01-02 15:04:05"))
-	}
+	totalSizeToFree := totalBuildSize(targetRootDir, buildsToRemove)
+	c.printRemovalPlan(target, buildsToRemove, totalSizeToFree)
 
 	if c.dryRun {
 		c.cmd.Println("\nDry run: No builds were removed.")
@@ -230,26 +163,112 @@ func (c *cleanupCommand) executeCleanup(target string) error {
 		return nil
 	}
 
-	// Confirm before removing
 	if !c.skipConfirm {
 		c.cmd.Print("\nDo you want to continue? (y/n): ")
 
-		var confirm string
-		if _, err := fmt.Scanln(&confirm); err != nil {
-			return fmt.Errorf("failed to read confirmation: %w", err)
+		confirmed, err := readYes()
+		if err != nil {
+			return err
 		}
 
-		if confirm != "y" && confirm != "Y" {
+		if !confirmed {
 			c.cmd.Println("Cleanup cancelled.")
 
 			return nil
 		}
 	}
 
-	// Remove the builds
+	removedCount := c.removeBuilds(targetRootDir, buildsToRemove)
+
+	c.cmd.Printf("%d builds removed successfully, freeing %.2f MB of disk space.\n",
+		removedCount, toMB(totalSizeToFree))
+
+	return nil
+}
+
+// listBuildsNewestFirst orders builds by recorded build time rather than the
+// directory mtime, which running or extracting a build rewrites.
+func listBuildsNewestFirst(targetRootDir string) ([]dirutils.DirEntry, error) {
+	entries, err := dirutils.GetDirEntries(targetRootDir, "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to read target directory: %w", err)
+	}
+
+	var builds []dirutils.DirEntry
+
+	for _, entry := range entries {
+		if entry.IsDir {
+			entry.ModTime = buildTime(filepath.Join(targetRootDir, entry.Name), entry.ModTime)
+			builds = append(builds, entry)
+		}
+	}
+
+	dirutils.SortDirEntriesByTime(builds, true)
+
+	return builds, nil
+}
+
+// selectBuildsToRemove expects builds newest first; builds beyond --max-builds
+// come first in the result, followed by the remaining ones older than --max-age.
+func (c *cleanupCommand) selectBuildsToRemove(builds []dirutils.DirEntry) []dirutils.DirEntry {
+	var buildsToRemove []dirutils.DirEntry
+
+	if c.maxBuilds > 0 && len(builds) > c.maxBuilds {
+		buildsToRemove = append(buildsToRemove, builds[c.maxBuilds:]...)
+	}
+
+	if c.maxAge <= 0 {
+		return buildsToRemove
+	}
+
+	maxAgeDuration := time.Duration(c.maxAge) * hoursPerDay * time.Hour
+	now := time.Now()
+
+	for _, build := range builds {
+		if !containsBuild(buildsToRemove, build.Name) && now.Sub(build.ModTime) > maxAgeDuration {
+			buildsToRemove = append(buildsToRemove, build)
+		}
+	}
+
+	return buildsToRemove
+}
+
+func (c *cleanupCommand) printRemovalPlan(target string, builds []dirutils.DirEntry, totalSize int64) {
+	c.cmd.Printf("Found %d builds to remove for target '%s'.\n", len(builds), target)
+	c.cmd.Printf("This will free approximately %.2f MB of disk space.\n", toMB(totalSize))
+
+	for _, build := range builds {
+		c.cmd.Printf("  %s (built on %s)\n", build.Name, build.ModTime.Format("2006-01-02 15:04:05"))
+	}
+}
+
+func containsBuild(builds []dirutils.DirEntry, name string) bool {
+	for _, build := range builds {
+		if build.Name == name {
+			return true
+		}
+	}
+
+	return false
+}
+
+func totalBuildSize(targetRootDir string, builds []dirutils.DirEntry) int64 {
+	var total int64
+
+	for _, build := range builds {
+		size, err := dirutils.GetDirSize(filepath.Join(targetRootDir, build.Name))
+		if err == nil {
+			total += size
+		}
+	}
+
+	return total
+}
+
+func (c *cleanupCommand) removeBuilds(targetRootDir string, builds []dirutils.DirEntry) int {
 	removedCount := 0
 
-	for _, build := range buildsToRemove {
+	for _, build := range builds {
 		buildPath := filepath.Join(targetRootDir, build.Name)
 		if err := os.RemoveAll(buildPath); err != nil {
 			c.cmd.Printf("Warning: Failed to remove build '%s': %v\n", build.Name, err)
@@ -260,10 +279,17 @@ func (c *cleanupCommand) executeCleanup(target string) error {
 		removedCount++
 	}
 
-	c.cmd.Printf("%d builds removed successfully, freeing %.2f MB of disk space.\n",
-		removedCount, toMB(totalSizeToFree))
+	return removedCount
+}
 
-	return nil
+// readYes reads one line from stdin and reports whether it is "y" or "Y".
+func readYes() (bool, error) {
+	var confirm string
+	if _, err := fmt.Scanln(&confirm); err != nil {
+		return false, fmt.Errorf("failed to read confirmation: %w", err)
+	}
+
+	return confirm == "y" || confirm == "Y", nil
 }
 
 func (c *cleanupCommand) executeCleanupAll() error {
@@ -294,22 +320,21 @@ func (c *cleanupCommand) executeCleanupAll() error {
 
 	c.cmd.Printf("Cleaning up builds for %d targets...\n", len(targets))
 
-	// If not skipping confirmation and not in dry run mode, confirm once for all targets
+	// Confirm once for all targets instead of once per target.
 	if !c.skipConfirm && !c.dryRun {
 		c.cmd.Print("This will clean up old builds for all targets. Continue? (y/n): ")
 
-		var confirm string
-		if _, err := fmt.Scanln(&confirm); err != nil {
-			return fmt.Errorf("failed to read confirmation: %w", err)
+		confirmed, err := readYes()
+		if err != nil {
+			return err
 		}
 
-		if confirm != "y" && confirm != "Y" {
+		if !confirmed {
 			c.cmd.Println("Cleanup cancelled.")
 
 			return nil
 		}
 
-		// Set skipConfirm to true to avoid asking again for each target
 		c.skipConfirm = true
 	}
 

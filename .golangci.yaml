@@ -4,13 +4,6 @@ run:
 linters:
   default: all
   disable:
-    # Complexity limits: flagged functions (executeBuild, executeRun, ...) need a structural split, tracked separately.
-    - cyclop
-    - funlen
-    - gocognit
-    - gocyclo
-    - maintidx
-    - nestif
     # Needs a project-specific import allow/deny list; dependencies are reviewed through go.mod.
     - depguard
     # Partial struct literals relying on zero values are idiomatic Go.
@@ -35,6 +28,10 @@ linters:
     # Deprecated in favour of wsl_v5.
     - wsl
   settings:
+    cyclop:
+      # Every `if err != nil` counts as a branch, so the default of 10 flags
+      # straight-line setup code; 15 still catches real branching.
+      max-complexity: 15
     govet:
       disable:
         - shadow
@@ -72,6 +69,14 @@ linters:
       # Repeated fixture literals read better inline in table-driven tests.
       - linters:
           - goconst
+        path: _test\.go
+      # Table-driven and step-by-step scenario tests grow with their cases.
+      - linters:
+          - cyclop
+          - funlen
+          - gocognit
+          - maintidx
+          - nestif
         path: _test\.go
       # Renaming exported pkg/ identifiers would break importers of the module.
       - linters:

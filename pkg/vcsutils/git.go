@@ -87,6 +87,8 @@ func normalizeCloneDepth(depth int) int {
 
 // Clone clones Source into cloneDir, creating the directory if needed, and
 // records the cloned HEAD commit in g.HEAD.
+//
+//nolint:cyclop,funlen // the token paths need real credentials to test, so they are not restructured
 func (g *Git) Clone(cloneDir string, opts Options) error {
 	// Default options
 	depth := normalizeCloneDepth(opts.Depth)
