@@ -130,14 +130,18 @@ func TestExecuteBuild_DefaultBranchHead(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(commitDir, "bin"))
 }
 
+// TestExecuteBuild_DefaultBranchFallsBackToMain builds a master-only source
+// with the implicit "main" branch, so the remote's default branch is used.
 func TestExecuteBuild_DefaultBranchFallsBackToMain(t *testing.T) {
-	repoDir, _ := initRepoWithFiles(t, map[string]string{"sample": "#!/bin/sh\n"})
+	repoDir, head := initRepoWithFiles(t, map[string]string{"sample": "#!/bin/sh\n"})
 	setupSampleTargetRaw(t, repoDir, buildCommandFor("true"))
 
 	var out bytes.Buffer
 
 	require.NoError(t, newTestBuild(&out).executeBuild("sample"))
 	assert.True(t, strings.HasPrefix(out.String(), "Getting HEAD of branch 'main' from "+repoDir+"...\n"))
+	assert.DirExists(t, filepath.Join(nigiriRoot, "sample", head[:7]))
+	assert.NoDirExists(t, filepath.Join(nigiriRoot, "sample", "0000000"))
 }
 
 func TestExecuteBuild_NoTimeoutMessageWhenDisabled(t *testing.T) {
