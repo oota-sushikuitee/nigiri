@@ -88,8 +88,8 @@ func (c *buildCommand) getCompletionTargets(prefix string) []string {
 }
 
 // resolveCloneDepth falls back to a full clone (depth 0) when a commit is
-// requested: a shallow clone only contains the default branch HEAD, so it
-// cannot resolve an arbitrary commit.
+// requested: a shallow clone only contains the branch tips, so it cannot
+// resolve an arbitrary commit.
 func resolveCloneDepth(depth int, commit string) int {
 	if commit != "" {
 		return 0
@@ -332,12 +332,21 @@ func (c *buildCommand) cloneSource(job *buildJob) (string, time.Duration, error)
 	}
 
 	cloneOptions := vcsutils.Options{
+		Branch:     job.git.Branch,
 		Depth:      cloneDepth,
 		Verbose:    c.verbose,
 		AuthMethod: authMethod,
 	}
 	if err := job.git.Clone(cloneDir, cloneOptions); err != nil {
 		return "", 0, logger.CreateErrorf("failed to clone repository: %w", err)
+	}
+
+	// The build directory is named after the commit resolved before cloning,
+	// so a branch that has advanced since then must not be built under it.
+	if c.commit == "" && job.git.HEAD != job.commit.Hash {
+		return "", 0, logger.CreateErrorf(
+			"branch '%s' is at %s instead of the resolved commit %s; it may have moved during the build, "+
+				"run the build again", job.git.Branch, job.git.HEAD[:commits.ShortHashLength], job.commit.ShortHash)
 	}
 
 	// A requested commit is always checked out so the build never silently

@@ -172,6 +172,37 @@ func TestClone(t *testing.T) {
 	}
 }
 
+func TestClone_Branch(t *testing.T) {
+	repoDir, first, _ := initTestRepo(t)
+
+	r, err := git.PlainOpen(repoDir)
+	if err != nil {
+		t.Fatalf("failed to open repository: %v", err)
+	}
+
+	setRef(t, r, plumbing.NewHashReference(plumbing.NewBranchReferenceName("dev"), plumbing.NewHash(first)))
+
+	destDir := filepath.Join(t.TempDir(), "clone")
+
+	g := Git{Source: repoDir}
+	if err := g.Clone(destDir, Options{Branch: "dev", Depth: 1, AuthMethod: AuthNone}); err != nil {
+		t.Fatalf("failed to clone branch dev: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(destDir, "file.txt"))
+	if err != nil {
+		t.Fatalf("failed to read file: %v", err)
+	}
+
+	if string(content) != "first" {
+		t.Errorf("file content = %q, want %q", content, "first")
+	}
+
+	if g.HEAD != first {
+		t.Errorf("HEAD after clone = %q, want %q", g.HEAD, first)
+	}
+}
+
 func setRef(t *testing.T, r *git.Repository, ref *plumbing.Reference) {
 	t.Helper()
 
