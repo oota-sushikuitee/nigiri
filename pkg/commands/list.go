@@ -111,31 +111,8 @@ func (c *listCommand) listTargetCommits(target string) error {
 		return nil
 	}
 
-	// Collect commit information and sort by time
-	var commits []commitInfo
+	commits := commitsNewestFirst(targetDir, entries)
 
-	for _, entry := range entries {
-		if entry.IsDir() {
-			commitDir := filepath.Join(targetDir, entry.Name())
-
-			info, err := os.Stat(commitDir)
-			if err != nil {
-				continue
-			}
-
-			commits = append(commits, commitInfo{
-				hash:    entry.Name(),
-				modTime: buildTime(commitDir, info.ModTime()),
-			})
-		}
-	}
-
-	// Sort by build time (newest first)
-	sort.Slice(commits, func(i, j int) bool {
-		return commits[i].modTime.After(commits[j].modTime)
-	})
-
-	// Get configuration information
 	cm := newConfigManager()
 	if err := cm.LoadCfgFile(); err == nil {
 		if targetCfg, ok := cm.Config.GetTarget(target); ok {
@@ -154,4 +131,32 @@ func (c *listCommand) listTargetCommits(target string) error {
 	c.cmd.Println("\nUse 'nigiri run " + target + " <commit>' to run a specific commit.")
 
 	return nil
+}
+
+func commitsNewestFirst(targetDir string, entries []os.DirEntry) []commitInfo {
+	var commits []commitInfo
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		commitDir := filepath.Join(targetDir, entry.Name())
+
+		info, err := os.Stat(commitDir)
+		if err != nil {
+			continue
+		}
+
+		commits = append(commits, commitInfo{
+			hash:    entry.Name(),
+			modTime: buildTime(commitDir, info.ModTime()),
+		})
+	}
+
+	sort.Slice(commits, func(i, j int) bool {
+		return commits[i].modTime.After(commits[j].modTime)
+	})
+
+	return commits
 }

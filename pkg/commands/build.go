@@ -23,6 +23,10 @@ import (
 
 const defaultBuildTimeoutMinutes = 30
 
+// buildTimeoutUnit is a variable so tests can exercise --timeout without
+// waiting for whole minutes.
+var buildTimeoutUnit = time.Minute
+
 type buildCommand struct {
 	cmd        *cobra.Command
 	commit     string
@@ -94,74 +98,33 @@ func resolveCloneDepth(depth int, commit string) int {
 	return depth
 }
 
+type buildJob struct {
+	git       *vcsutils.Git
+	target    string
+	commitDir string
+	commit    commits.Commit
+	defaults  cfgmodel.BuildCommand
+	cfg       cfgmodel.Target
+}
+
 func (c *buildCommand) executeBuild(target string) error {
-	// Load configuration
-	cm := newConfigManager()
-
-	err := cm.LoadCfgFile()
+	targetCfg, defaults, err := loadBuildTarget(target)
 	if err != nil {
-		return logger.CreateErrorf("failed to load configuration: %w", err)
+		return err
 	}
 
-	// Check if target exists in config
-	targetCfg, exists := cm.Config.GetTarget(target)
-	if !exists {
-		return logger.CreateErrorf("target '%s' not found in configuration", target)
-	}
-
-	// Create target directory if it doesn't exist
-	fsTarget := targets.Target{Target: target}
-
-	if _, createErr := fsTarget.CreateTargetRootDirIfNotExist(nigiriRoot); createErr != nil {
-		return logger.CreateErrorf("failed to create target directory: %w", createErr)
-	}
-
-	targetRootDir, err := fsTarget.GetTargetRootDir(nigiriRoot)
+	targetRootDir, err := ensureTargetRootDir(target)
 	if err != nil {
-		return logger.CreateErrorf("failed to get target directory: %w", err)
+		return err
 	}
 
-	// Initialize git utility
-	git := vcsutils.Git{
-		Source: targetCfg.Sources,
+	git := &vcsutils.Git{Source: targetCfg.Sources}
+
+	headCommit, err := c.resolveHeadCommit(git, targetCfg)
+	if err != nil {
+		return err
 	}
 
-	// Determine the commit to build
-	var headCommit commits.Commit
-
-	if c.commit == "" {
-		// Get the HEAD of the default branch
-		defaultBranch := targetCfg.DefaultBranch
-		if defaultBranch == "" {
-			defaultBranch = "main" // Default to 'main' if not specified
-		}
-
-		c.cmd.Printf("Getting HEAD of branch '%s' from %s...\n", defaultBranch, targetCfg.Sources)
-
-		if gitErr := git.GetDefaultBranchRemoteHead(defaultBranch); gitErr != nil {
-			return logger.CreateErrorf("failed to get HEAD of branch '%s': %w", defaultBranch, gitErr)
-		}
-
-		headCommit = commits.Commit{
-			Hash: git.HEAD,
-		}
-	} else {
-		// Use the specified commit
-		c.cmd.Printf("Using specified commit: %s\n", c.commit)
-		headCommit = commits.Commit{
-			Hash: c.commit,
-		}
-	}
-
-	if hashErr := headCommit.CalculateShortHash(); hashErr != nil {
-		return logger.CreateErrorf("failed to calculate short hash: %w", hashErr)
-	}
-
-	if validateErr := headCommit.Validate(); validateErr != nil {
-		return logger.CreateErrorf("invalid commit: %w", validateErr)
-	}
-
-	// Check if commit has already been built
 	isExistCommitDir := targets.IsExistTargetCommitDir(targetRootDir, headCommit)
 	if isExistCommitDir && !c.forceBuild {
 		c.cmd.Printf("Commit %s has already been built. Use --force to rebuild.\n", headCommit.ShortHash)
@@ -169,27 +132,9 @@ func (c *buildCommand) executeBuild(target string) error {
 		return nil
 	}
 
-	// Create commit directory
-	var (
-		commitDir string
-		createErr error
-	)
-
-	if isExistCommitDir {
-		// If force rebuild, use the existing directory
-		commitDir = filepath.Join(targetRootDir, headCommit.ShortHash)
-		c.cmd.Printf("Force rebuilding commit %s\n", headCommit.ShortHash)
-		// Clean up the src directory
-		srcDir := filepath.Join(commitDir, "src")
-		if cleanErr := os.RemoveAll(srcDir); cleanErr != nil {
-			return logger.CreateErrorf("failed to clean src directory: %w", cleanErr)
-		}
-	} else {
-		// Create a new commit directory
-		commitDir, createErr = targets.CreateTargetCommitDir(targetRootDir, headCommit)
-		if createErr != nil {
-			return logger.CreateErrorf("failed to create commit directory: %w", createErr)
-		}
+	commitDir, err := c.prepareCommitDir(targetRootDir, headCommit, isExistCommitDir)
+	if err != nil {
+		return err
 	}
 
 	// A commit directory created for a build that then fails must not survive:
@@ -208,7 +153,105 @@ func (c *buildCommand) executeBuild(target string) error {
 		}()
 	}
 
-	// Record current working directory
+	job := &buildJob{
+		git: git, target: target, commitDir: commitDir, commit: headCommit, defaults: defaults, cfg: targetCfg,
+	}
+	if err := c.buildInCommitDir(job); err != nil {
+		return err
+	}
+
+	buildSucceeded = true
+
+	c.cmd.Printf("Target '%s' built at commit %s\n", target, headCommit.ShortHash)
+	c.cmd.Printf("Run with: nigiri run %s %s\n", target, headCommit.ShortHash)
+
+	return nil
+}
+
+func loadBuildTarget(target string) (cfgmodel.Target, cfgmodel.BuildCommand, error) {
+	cm := newConfigManager()
+	if err := cm.LoadCfgFile(); err != nil {
+		return cfgmodel.Target{}, cfgmodel.BuildCommand{}, logger.CreateErrorf("failed to load configuration: %w", err)
+	}
+
+	targetCfg, exists := cm.Config.GetTarget(target)
+	if !exists {
+		return cfgmodel.Target{}, cfgmodel.BuildCommand{},
+			logger.CreateErrorf("target '%s' not found in configuration", target)
+	}
+
+	return targetCfg, cm.Config.Defaults, nil
+}
+
+func ensureTargetRootDir(target string) (string, error) {
+	fsTarget := targets.Target{Target: target}
+
+	if _, err := fsTarget.CreateTargetRootDirIfNotExist(nigiriRoot); err != nil {
+		return "", logger.CreateErrorf("failed to create target directory: %w", err)
+	}
+
+	targetRootDir, err := fsTarget.GetTargetRootDir(nigiriRoot)
+	if err != nil {
+		return "", logger.CreateErrorf("failed to get target directory: %w", err)
+	}
+
+	return targetRootDir, nil
+}
+
+func (c *buildCommand) resolveHeadCommit(git *vcsutils.Git, targetCfg cfgmodel.Target) (commits.Commit, error) {
+	headCommit := commits.Commit{Hash: c.commit}
+
+	if c.commit == "" {
+		defaultBranch := targetCfg.DefaultBranch
+		if defaultBranch == "" {
+			defaultBranch = "main"
+		}
+
+		c.cmd.Printf("Getting HEAD of branch '%s' from %s...\n", defaultBranch, targetCfg.Sources)
+
+		if err := git.GetDefaultBranchRemoteHead(defaultBranch); err != nil {
+			return commits.Commit{}, logger.CreateErrorf("failed to get HEAD of branch '%s': %w", defaultBranch, err)
+		}
+
+		headCommit.Hash = git.HEAD
+	} else {
+		c.cmd.Printf("Using specified commit: %s\n", c.commit)
+	}
+
+	if err := headCommit.CalculateShortHash(); err != nil {
+		return commits.Commit{}, logger.CreateErrorf("failed to calculate short hash: %w", err)
+	}
+
+	if err := headCommit.Validate(); err != nil {
+		return commits.Commit{}, logger.CreateErrorf("invalid commit: %w", err)
+	}
+
+	return headCommit, nil
+}
+
+// prepareCommitDir reuses the directory of a forced rebuild, dropping only its
+// source tree so the previous artifacts survive a failed rebuild.
+func (c *buildCommand) prepareCommitDir(targetRootDir string, headCommit commits.Commit, exists bool) (string, error) {
+	if !exists {
+		commitDir, err := targets.CreateTargetCommitDir(targetRootDir, headCommit)
+		if err != nil {
+			return "", logger.CreateErrorf("failed to create commit directory: %w", err)
+		}
+
+		return commitDir, nil
+	}
+
+	commitDir := filepath.Join(targetRootDir, headCommit.ShortHash)
+	c.cmd.Printf("Force rebuilding commit %s\n", headCommit.ShortHash)
+
+	if err := os.RemoveAll(filepath.Join(commitDir, "src")); err != nil {
+		return "", logger.CreateErrorf("failed to clean src directory: %w", err)
+	}
+
+	return commitDir, nil
+}
+
+func (c *buildCommand) buildInCommitDir(job *buildJob) error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return logger.CreateErrorf("failed to get current working directory: %w", err)
@@ -219,20 +262,59 @@ func (c *buildCommand) executeBuild(target string) error {
 		}
 	}()
 
-	// Change to the commit directory
-	if chErr := os.Chdir(commitDir); chErr != nil {
-		return logger.CreateErrorf("failed to change to commit directory: %w", chErr)
+	if err := os.Chdir(job.commitDir); err != nil {
+		return logger.CreateErrorf("failed to change to commit directory: %w", err)
 	}
 
-	// Create log directory for build logs
-	logDir := filepath.Join(commitDir, "logs")
-	if mkErr := os.MkdirAll(logDir, 0o755); mkErr != nil {
-		return logger.CreateErrorf("failed to create log directory: %w", mkErr)
+	logDir := filepath.Join(job.commitDir, "logs")
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		return logger.CreateErrorf("failed to create log directory: %w", err)
 	}
 
-	// Clone the repository with specified options
+	cloneDir, cloneDuration, err := c.cloneSource(job)
+	if err != nil {
+		return err
+	}
+
+	workDir, err := enterWorkDir(cloneDir, job.cfg.WorkingDirectory)
+	if err != nil {
+		return err
+	}
+
+	cmd, err := selectBuildCommand(job.cfg.BuildCommand, job.defaults, runtime.GOOS)
+	if err != nil {
+		return err
+	}
+
+	buildLogPath := filepath.Join(logDir, "build.log")
+
+	buildLogFile, err := os.Create(buildLogPath)
+	if err != nil {
+		return logger.CreateErrorf("failed to create build log file: %w", err)
+	}
+
+	defer func() {
+		if err := buildLogFile.Close(); err != nil {
+			logger.Warnf("failed to close build log file: %v", err)
+		}
+	}()
+
+	buildDuration, buildErr := c.runBuild(job, cmd, buildLogFile)
+	if buildErr != nil {
+		return logger.CreateErrorf("build failed: %w\nSee build log at %s", buildErr, buildLogPath)
+	}
+
+	// Only successful builds are recorded, so the build date always describes
+	// the artifacts actually present in the directory.
+	writeBuildMetadata(job, cloneDuration, buildDuration)
+	collectArtifacts(job, workDir, cloneDir)
+
+	return nil
+}
+
+func (c *buildCommand) cloneSource(job *buildJob) (string, time.Duration, error) {
 	cloneStartTime := time.Now()
-	cloneDir := filepath.Join(commitDir, "src")
+	cloneDir := filepath.Join(job.commitDir, "src")
 	c.cmd.Printf("Cloning repository to %s...\n", cloneDir)
 
 	authMethod := vcsutils.AuthNone
@@ -250,61 +332,44 @@ func (c *buildCommand) executeBuild(target string) error {
 		Verbose:    c.verbose,
 		AuthMethod: authMethod,
 	}
-	if cloneErr := git.Clone(cloneDir, cloneOptions); cloneErr != nil {
-		return logger.CreateErrorf("failed to clone repository: %w", cloneErr)
+	if err := job.git.Clone(cloneDir, cloneOptions); err != nil {
+		return "", 0, logger.CreateErrorf("failed to clone repository: %w", err)
 	}
 
-	// If a specific commit was requested, always check it out so the build
-	// never silently uses the default branch HEAD instead
+	// A requested commit is always checked out so the build never silently
+	// uses the default branch HEAD instead.
 	if c.commit != "" {
 		c.cmd.Printf("Checking out commit %s...\n", c.commit)
 
-		if checkoutErr := git.Checkout(cloneDir, c.commit); checkoutErr != nil {
-			return logger.CreateErrorf("failed to checkout commit %s: %w", c.commit, checkoutErr)
+		if err := job.git.Checkout(cloneDir, c.commit); err != nil {
+			return "", 0, logger.CreateErrorf("failed to checkout commit %s: %w", c.commit, err)
 		}
 	}
 
 	cloneDuration := time.Since(cloneStartTime)
 	c.cmd.Printf("Repository cloned in %s\n", cloneDuration)
 
-	// Change to the source directory for building
-	// If working directory is specified, change to that directory
+	return cloneDir, cloneDuration, nil
+}
+
+func enterWorkDir(cloneDir, workingDirectory string) (string, error) {
 	workDir := cloneDir
-	if targetCfg.WorkingDirectory != "" {
-		workDir = filepath.Join(cloneDir, targetCfg.WorkingDirectory)
+	if workingDirectory != "" {
+		workDir = filepath.Join(cloneDir, workingDirectory)
 		if _, err := os.Stat(workDir); os.IsNotExist(err) {
-			return logger.CreateErrorf("working directory '%s' not found in source", targetCfg.WorkingDirectory)
+			return "", logger.CreateErrorf("working directory '%s' not found in source", workingDirectory)
 		}
 	}
 
-	if chdirErr := os.Chdir(workDir); chdirErr != nil {
-		return logger.CreateErrorf("failed to change to working directory: %w", chdirErr)
+	if err := os.Chdir(workDir); err != nil {
+		return "", logger.CreateErrorf("failed to change to working directory: %w", err)
 	}
 
-	// Select the appropriate build command based on the OS
-	buildCmd := targetCfg.BuildCommand
+	return workDir, nil
+}
 
-	cmd, cmdErr := selectBuildCommand(buildCmd, cm.Config.Defaults, runtime.GOOS)
-	if cmdErr != nil {
-		return cmdErr
-	}
-
-	// Build log file path
-	buildLogPath := filepath.Join(logDir, "build.log")
-
-	buildLogFile, err := os.Create(buildLogPath)
-	if err != nil {
-		return logger.CreateErrorf("failed to create build log file: %w", err)
-	}
-
-	defer func() {
-		if err := buildLogFile.Close(); err != nil {
-			logger.Warnf("failed to close build log file: %v", err)
-		}
-	}()
-
-	// Run the build command
-	c.cmd.Printf("Building target '%s' with command: %s\n", target, cmd)
+func (c *buildCommand) runBuild(job *buildJob, cmd string, buildLog io.Writer) (time.Duration, error) {
+	c.cmd.Printf("Building target '%s' with command: %s\n", job.target, cmd)
 
 	if c.timeout > 0 {
 		c.cmd.Printf("Build timeout: %d minutes\n", c.timeout)
@@ -312,121 +377,108 @@ func (c *buildCommand) executeBuild(target string) error {
 
 	buildStartTime := time.Now()
 
-	// Create context with timeout if specified
-	var (
-		ctx    context.Context
-		cancel context.CancelFunc
-	)
-	if c.timeout > 0 {
-		ctx, cancel = context.WithTimeout(context.Background(), time.Duration(c.timeout)*time.Minute)
-		defer cancel()
-	} else {
-		ctx = context.Background()
-	}
+	ctx, cancel := c.buildContext()
+	defer cancel()
 
-	var (
-		stdout io.Writer = buildLogFile
-		stderr io.Writer = buildLogFile
-	)
+	stdout, stderr := buildLog, buildLog
 	if c.verbose {
-		// If verbose, show output in terminal too
-		stdout = io.MultiWriter(os.Stdout, buildLogFile)
-		stderr = io.MultiWriter(os.Stderr, buildLogFile)
+		stdout = io.MultiWriter(os.Stdout, buildLog)
+		stderr = io.MultiWriter(os.Stderr, buildLog)
 	}
 
 	var env []string
-	if len(targetCfg.Env) > 0 {
-		env = append(os.Environ(), targetCfg.Env...)
+	if len(job.cfg.Env) > 0 {
+		env = append(os.Environ(), job.cfg.Env...)
 	}
 
 	buildErr := runBuildCommand(ctx, cmd, stdout, stderr, env, buildWaitDelay)
 
-	// Check if the build was killed due to timeout
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		buildErr = logger.CreateErrorf("build timed out after %d minutes", c.timeout)
 	}
 
-	buildDuration := time.Since(buildStartTime)
+	return time.Since(buildStartTime), buildErr
+}
 
-	// Record build metadata. Only successful builds are recorded, so the build
-	// date always describes the artifacts actually present in the directory.
-	if buildErr == nil {
-		metadata := fmt.Sprintf("Target: %s\nCommit: %s\nShort hash: %s\n%s %s\n"+
-			"Clone duration: %s\nBuild duration: %s\nOS: %s\nArchitecture: %s\n",
-			target, headCommit.Hash, headCommit.ShortHash,
-			buildDateField, time.Now().Format(time.RFC3339),
-			cloneDuration, buildDuration, runtime.GOOS, runtime.GOARCH)
-		if writeErr := os.WriteFile(filepath.Join(commitDir, buildInfoFileName), []byte(metadata), 0o644); writeErr != nil {
-			logger.Warnf("Failed to write build metadata: %v", writeErr)
-		}
+func (c *buildCommand) buildContext() (context.Context, context.CancelFunc) {
+	if c.timeout > 0 {
+		return context.WithTimeout(context.Background(), time.Duration(c.timeout)*buildTimeoutUnit)
 	}
 
-	// Only a successful build produces artifacts. A failed forced rebuild must
-	// leave the previous build's artifacts untouched instead of replacing them
-	// with the output of a build that did not run.
-	if buildErr == nil {
-		// Copy built binary if binary path is specified
-		binaryCaptured := false
+	return context.Background(), func() {}
+}
 
-		binaryPath, hasBinaryPath := buildCmd.BinaryPath()
-		if hasBinaryPath {
-			// If binary path is specified, copy it to the commit directory
-			sourceFile := filepath.Join(workDir, binaryPath)
-			destFile := filepath.Join(commitDir, "bin")
+func writeBuildMetadata(job *buildJob, cloneDuration, buildDuration time.Duration) {
+	metadata := fmt.Sprintf("Target: %s\nCommit: %s\nShort hash: %s\n%s %s\n"+
+		"Clone duration: %s\nBuild duration: %s\nOS: %s\nArchitecture: %s\n",
+		job.target, job.commit.Hash, job.commit.ShortHash,
+		buildDateField, time.Now().Format(time.RFC3339),
+		cloneDuration, buildDuration, runtime.GOOS, runtime.GOARCH)
+	if err := os.WriteFile(filepath.Join(job.commitDir, buildInfoFileName), []byte(metadata), 0o644); err != nil {
+		logger.Warnf("Failed to write build metadata: %v", err)
+	}
+}
 
-			// Create bin directory if it doesn't exist
-			if err := os.MkdirAll(filepath.Dir(destFile), 0o755); err != nil {
-				logger.Warnf("Failed to create bin directory: %v", err)
-			} else {
-				// Copy the binary
-				if copyErr := copyFile(sourceFile, destFile); copyErr != nil {
-					logger.Warnf("Failed to copy binary: %v", copyErr)
-				} else {
-					binaryCaptured = true
-				}
-			}
+// collectArtifacts keeps the source archive whenever no binary was captured:
+// dropping the source without a binary would leave nothing runnable behind.
+func collectArtifacts(job *buildJob, workDir, cloneDir string) {
+	binaryCaptured := captureBinary(job.cfg.BuildCommand, workDir, job.commitDir)
+
+	if job.cfg.BinaryOnly && binaryCaptured {
+		if err := os.RemoveAll(cloneDir); err != nil {
+			logger.Warnf("Failed to remove source directory: %v", err)
 		}
 
-		// Handle binary_only option or compress source. Dropping the source
-		// without a binary would leave nothing runnable behind, so the archive
-		// is kept whenever no binary was captured.
-		if targetCfg.BinaryOnly && binaryCaptured {
-			// If binary_only is set, remove source directory
-			if err := os.RemoveAll(cloneDir); err != nil {
-				logger.Warnf("Failed to remove source directory: %v", err)
-			}
-		} else {
-			if targetCfg.BinaryOnly {
-				logger.Warnf("binary-only is set for target '%s' but no binary was captured; keeping the source archive", target)
-			}
-			// Compress source directory
-			srcTarGzPath := filepath.Join(commitDir, "source.tar.gz")
-			if err := compressDirectory(cloneDir, srcTarGzPath); err != nil {
-				logger.Warnf("Failed to compress source directory (keeping the source tree): %v", err)
-				// A partial archive would fail to extract later; drop it.
-				if rmErr := os.Remove(srcTarGzPath); rmErr != nil && !os.IsNotExist(rmErr) {
-					logger.Warnf("Failed to remove incomplete archive %s: %v", srcTarGzPath, rmErr)
-				}
-			} else {
-				// If compression successful, remove source directory
-				if err := os.RemoveAll(cloneDir); err != nil {
-					logger.Warnf("Failed to remove source directory after compression: %v", err)
-				}
-			}
+		return
+	}
+
+	if job.cfg.BinaryOnly {
+		logger.Warnf("binary-only is set for target '%s' but no binary was captured; keeping the source archive",
+			job.target)
+	}
+
+	archiveSource(cloneDir, job.commitDir)
+}
+
+func captureBinary(buildCmd cfgmodel.BuildCommand, workDir, commitDir string) bool {
+	binaryPath, hasBinaryPath := buildCmd.BinaryPath()
+	if !hasBinaryPath {
+		return false
+	}
+
+	sourceFile := filepath.Join(workDir, binaryPath)
+	destFile := filepath.Join(commitDir, "bin")
+
+	if err := os.MkdirAll(filepath.Dir(destFile), 0o755); err != nil {
+		logger.Warnf("Failed to create bin directory: %v", err)
+
+		return false
+	}
+
+	if err := copyFile(sourceFile, destFile); err != nil {
+		logger.Warnf("Failed to copy binary: %v", err)
+
+		return false
+	}
+
+	return true
+}
+
+func archiveSource(cloneDir, commitDir string) {
+	srcTarGzPath := filepath.Join(commitDir, "source.tar.gz")
+	if err := compressDirectory(cloneDir, srcTarGzPath); err != nil {
+		logger.Warnf("Failed to compress source directory (keeping the source tree): %v", err)
+		// A partial archive would fail to extract later; drop it.
+		if rmErr := os.Remove(srcTarGzPath); rmErr != nil && !os.IsNotExist(rmErr) {
+			logger.Warnf("Failed to remove incomplete archive %s: %v", srcTarGzPath, rmErr)
 		}
+
+		return
 	}
 
-	// Check if build was successful
-	if buildErr != nil {
-		return logger.CreateErrorf("build failed: %w\nSee build log at %s", buildErr, buildLogPath)
+	if err := os.RemoveAll(cloneDir); err != nil {
+		logger.Warnf("Failed to remove source directory after compression: %v", err)
 	}
-
-	buildSucceeded = true
-
-	c.cmd.Printf("Target '%s' built at commit %s\n", target, headCommit.ShortHash)
-	c.cmd.Printf("Run with: nigiri run %s %s\n", target, headCommit.ShortHash)
-
-	return nil
 }
 
 // selectBuildCommand falls back to the configuration's `defaults` section when
@@ -507,7 +559,6 @@ func copyFile(src, dst string) error {
 		return fmt.Errorf("file %s exceeds the %d byte size limit", src, int64(maxFileSizeForArchive))
 	}
 
-	// Open source file
 	sourceFile, err := os.Open(src)
 	if err != nil {
 		return fmt.Errorf("failed to open source file: %w", err)
@@ -518,7 +569,6 @@ func copyFile(src, dst string) error {
 		}
 	}()
 
-	// Create destination file
 	destFile, err := os.Create(dst)
 	if err != nil {
 		return fmt.Errorf("failed to create destination file: %w", err)
@@ -529,12 +579,10 @@ func copyFile(src, dst string) error {
 		}
 	}()
 
-	// Copy file contents
 	if _, err := io.Copy(destFile, sourceFile); err != nil {
 		return fmt.Errorf("failed to copy file: %w", err)
 	}
 
-	// Set file permissions
 	if err := os.Chmod(dst, info.Mode()); err != nil {
 		return fmt.Errorf("failed to set file permissions: %w", err)
 	}
@@ -553,7 +601,6 @@ func wrapClose(msg string, err error) error {
 }
 
 func compressDirectory(srcDir, tarGzPath string) (err error) {
-	// Create tar.gz file
 	tarGzFile, createErr := os.Create(tarGzPath)
 	if createErr != nil {
 		return fmt.Errorf("failed to create tar.gz file: %w", createErr)
@@ -573,67 +620,68 @@ func compressDirectory(srcDir, tarGzPath string) (err error) {
 		)
 	}()
 
-	// Walk through directory and add files to tar
 	walkErr := filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 
-		// Resolve the link target for symlinks so it is recorded in the header.
-		// filepath.Walk uses Lstat, so info describes the link itself.
-		var linkTarget string
-		if info.Mode()&os.ModeSymlink != 0 {
-			linkTarget, err = os.Readlink(path)
-			if err != nil {
-				return fmt.Errorf("failed to read symlink: %w", err)
-			}
-		}
-
-		// Create tar header
-		header, err := tar.FileInfoHeader(info, linkTarget)
-		if err != nil {
-			return fmt.Errorf("failed to create tar header: %w", err)
-		}
-
-		// Set header name relative to source directory
-		relPath, err := filepath.Rel(srcDir, path)
-		if err != nil {
-			return fmt.Errorf("failed to get relative path: %w", err)
-		}
-
-		header.Name = relPath
-
-		// Skip if it's the root directory
-		if relPath == "." {
-			return nil
-		}
-
-		// Reject oversized files rather than truncating them: the header
-		// declares the full size, so a short body corrupts the archive.
-		if info.Mode().IsRegular() && info.Size() > maxFileSizeForArchive {
-			return fmt.Errorf("file %s exceeds the %d byte archive size limit", path, int64(maxFileSizeForArchive))
-		}
-
-		// Write header
-		if err := tarWriter.WriteHeader(header); err != nil {
-			return fmt.Errorf("failed to write tar header: %w", err)
-		}
-
-		// Only regular files carry content; directories and symlinks are
-		// represented by their header alone. Writing content for a symlink
-		// would follow the link and corrupt the archive.
-		if !info.Mode().IsRegular() {
-			return nil
-		}
-
-		// Add file to tar using helper function to avoid defer accumulation in Walk
-		return addFileToTar(tarWriter, path, info.Size())
+		return addEntryToTar(tarWriter, srcDir, path, info)
 	})
 	if walkErr != nil {
 		return fmt.Errorf("failed to archive %s: %w", srcDir, walkErr)
 	}
 
 	return nil
+}
+
+func addEntryToTar(tarWriter *tar.Writer, srcDir, path string, info os.FileInfo) error {
+	// filepath.Walk uses Lstat, so info describes a symlink itself and its
+	// target has to be read separately to be recorded in the header.
+	var linkTarget string
+
+	if info.Mode()&os.ModeSymlink != 0 {
+		var err error
+
+		linkTarget, err = os.Readlink(path)
+		if err != nil {
+			return fmt.Errorf("failed to read symlink: %w", err)
+		}
+	}
+
+	header, err := tar.FileInfoHeader(info, linkTarget)
+	if err != nil {
+		return fmt.Errorf("failed to create tar header: %w", err)
+	}
+
+	relPath, err := filepath.Rel(srcDir, path)
+	if err != nil {
+		return fmt.Errorf("failed to get relative path: %w", err)
+	}
+
+	header.Name = relPath
+
+	if relPath == "." {
+		return nil
+	}
+
+	// Reject oversized files rather than truncating them: the header
+	// declares the full size, so a short body corrupts the archive.
+	if info.Mode().IsRegular() && info.Size() > maxFileSizeForArchive {
+		return fmt.Errorf("file %s exceeds the %d byte archive size limit", path, int64(maxFileSizeForArchive))
+	}
+
+	if err := tarWriter.WriteHeader(header); err != nil {
+		return fmt.Errorf("failed to write tar header: %w", err)
+	}
+
+	// Only regular files carry content; directories and symlinks are
+	// represented by their header alone. Writing content for a symlink
+	// would follow the link and corrupt the archive.
+	if !info.Mode().IsRegular() {
+		return nil
+	}
+
+	return addFileToTar(tarWriter, path, info.Size())
 }
 
 // addFileToTar is a separate function so the deferred Close runs per file

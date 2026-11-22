@@ -160,18 +160,9 @@ func (c *removeCommand) executeRemoveCommit(target, commitHash string) error {
 			commitHash, commits.ShortHashLength)
 	}
 
-	// Find directories that match the commit hash prefix
-	dirs, err := os.ReadDir(targetRootDir)
+	matchingDirs, err := matchingBuildDirs(targetRootDir, commitHash)
 	if err != nil {
-		return logger.CreateErrorf("failed to read target directory: %w", err)
-	}
-
-	var matchingDirs []string
-
-	for _, dir := range dirs {
-		if dir.IsDir() && commitDirMatches(dir.Name(), commitHash) {
-			matchingDirs = append(matchingDirs, dir.Name())
-		}
+		return err
 	}
 
 	if len(matchingDirs) == 0 {
