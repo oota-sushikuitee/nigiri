@@ -13,8 +13,11 @@ import (
 	"time"
 
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/oota-sushikuitee/nigiri/pkg/commits"
 	"github.com/oota-sushikuitee/nigiri/pkg/logger"
+	"github.com/oota-sushikuitee/nigiri/pkg/vcsutils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -146,6 +149,135 @@ func TestExecuteBuild_DefaultBranchFallsBackToMain(t *testing.T) {
 	assert.Equal(t, "WARNING: Branch 'main' not found; using the remote default branch 'master'\n", logs.String())
 	assert.DirExists(t, filepath.Join(nigiriRoot, "sample", head[:7]))
 	assert.NoDirExists(t, filepath.Join(nigiriRoot, "sample", "0000000"))
+}
+
+// initTwoBranchRepo returns a repository whose HEAD is master and whose
+// develop branch carries a different branch.txt, with the tip hash of each.
+func initTwoBranchRepo(t *testing.T) (string, string, string) {
+	t.Helper()
+
+	repoDir, master := initRepoWithFiles(t, map[string]string{"branch.txt": "master\n"})
+	repo, err := git.PlainOpen(repoDir)
+	require.NoError(t, err)
+	worktree, err := repo.Worktree()
+	require.NoError(t, err)
+
+	develop := plumbing.NewBranchReferenceName("develop")
+	require.NoError(t, worktree.Checkout(&git.CheckoutOptions{Branch: develop, Create: true}))
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "branch.txt"), []byte("develop\n"), 0o644))
+
+	_, err = worktree.Add("branch.txt")
+	require.NoError(t, err)
+	developHash, err := worktree.Commit("on develop", &git.CommitOptions{
+		Author: &object.Signature{Name: "test", Email: "test@example.com", When: time.Now()},
+	})
+	require.NoError(t, err)
+	require.NoError(t, worktree.Checkout(&git.CheckoutOptions{Branch: plumbing.Master}))
+
+	return repoDir, master, developHash.String()
+}
+
+// assertBuiltTree pins that the build ran on the tree of wantHash and that the
+// result is stored under that hash.
+func assertBuiltTree(t *testing.T, probe, wantHash, wantContent string) {
+	t.Helper()
+
+	built, err := os.ReadFile(filepath.Join(probe, "content"))
+	require.NoError(t, err)
+	assert.Equal(t, wantContent, string(built))
+
+	entries, err := os.ReadDir(filepath.Join(nigiriRoot, "sample"))
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, wantHash[:7], entries[0].Name())
+
+	info, err := os.ReadFile(filepath.Join(nigiriRoot, "sample", wantHash[:7], buildInfoFileName))
+	require.NoError(t, err)
+	assert.Contains(t, string(info), "\nCommit: "+wantHash+"\n")
+}
+
+func TestExecuteBuild_BuildsTheCommitItStores(t *testing.T) {
+	tests := []struct {
+		name string
+		// configure returns the target's extra YAML and the explicit commit
+		// argument ("" for none), and moves refs of the source if needed.
+		configure   func(t *testing.T, repoDir, master, develop string) (string, string)
+		wantDevelop bool
+	}{
+		{
+			name: "default branch other than the remote HEAD branch",
+			configure: func(_ *testing.T, _, _, _ string) (string, string) {
+				return "    default-branch: develop\n", ""
+			},
+			wantDevelop: true,
+		},
+		{
+			name: "default branch that is the remote HEAD branch",
+			configure: func(_ *testing.T, _, _, _ string) (string, string) {
+				return "    default-branch: master\n", ""
+			},
+		},
+		{
+			name: "missing default branch falls back to the remote HEAD branch",
+			configure: func(t *testing.T, repoDir, _, _ string) (string, string) {
+				t.Helper()
+
+				repo, err := git.PlainOpen(repoDir)
+				require.NoError(t, err)
+				require.NoError(t, repo.Storer.SetReference(
+					plumbing.NewSymbolicReference(plumbing.HEAD, plumbing.NewBranchReferenceName("develop"))))
+
+				return "    default-branch: main\n", ""
+			},
+			wantDevelop: true,
+		},
+		{
+			name: "explicit commit only on a non-HEAD branch",
+			configure: func(_ *testing.T, _, _, develop string) (string, string) {
+				return "    default-branch: master\n", develop
+			},
+			wantDevelop: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repoDir, master, develop := initTwoBranchRepo(t)
+			extra, commit := tt.configure(t, repoDir, master, develop)
+			probe := t.TempDir()
+			setupSampleTargetRaw(t, repoDir, extra+buildCommandFor("cat branch.txt > "+probe+"/content"))
+			captureLogger(t)
+
+			c := newTestBuild(io.Discard)
+			c.commit = commit
+			require.NoError(t, c.executeBuild("sample"))
+
+			if tt.wantDevelop {
+				assertBuiltTree(t, probe, develop, "develop\n")
+			} else {
+				assertBuiltTree(t, probe, master, "master\n")
+			}
+		})
+	}
+}
+
+// TestCloneSource_RejectsBranchMovedAfterResolution covers a branch that
+// advances between resolving its hash and cloning it: the clone then holds a
+// different commit than the one naming the build directory.
+func TestCloneSource_RejectsBranchMovedAfterResolution(t *testing.T) {
+	repoDir, master, develop := initTwoBranchRepo(t)
+	commitDir := t.TempDir()
+	stale := commits.Commit{Hash: master, ShortHash: master[:7]}
+
+	c := newTestBuild(io.Discard)
+	job := &buildJob{
+		git:       &vcsutils.Git{Source: repoDir, HEAD: master, Branch: "develop"},
+		commitDir: commitDir,
+		commit:    stale,
+	}
+	_, _, err := c.cloneSource(job)
+	require.Error(t, err)
+	assert.Equal(t, "branch 'develop' is at "+develop[:7]+" instead of the resolved commit "+master[:7]+
+		"; it may have moved during the build, run the build again", err.Error())
 }
 
 func TestExecuteBuild_NoTimeoutMessageWhenDisabled(t *testing.T) {

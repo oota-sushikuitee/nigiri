@@ -45,6 +45,9 @@ type Options struct {
 	// Token is used with AuthToken. When empty, GITHUB_TOKEN and then
 	// `gh auth token` are tried.
 	Token string
+	// Branch is the remote branch to check out; empty means the branch the
+	// remote's HEAD points to.
+	Branch string
 	// Depth limits the clone history; 0 or a negative value clones the full
 	// history.
 	Depth int
@@ -82,8 +85,8 @@ func normalizeCloneDepth(depth int) int {
 	return depth
 }
 
-// Clone clones Source into cloneDir, creating the directory if needed, and
-// records the cloned HEAD commit in g.HEAD.
+// Clone clones Source into cloneDir, creating the directory if needed, checks
+// out opts.Branch, and records the checked-out commit in g.HEAD.
 //
 //nolint:cyclop,funlen // the token paths need real credentials to test, so they are not restructured
 func (g *Git) Clone(cloneDir string, opts Options) error {
@@ -102,6 +105,9 @@ func (g *Git) Clone(cloneDir string, opts Options) error {
 		URL:               g.Source,
 		ShallowSubmodules: depth == 1,
 		Depth:             depth,
+	}
+	if opts.Branch != "" {
+		cloneOpts.ReferenceName = plumbing.NewBranchReferenceName(opts.Branch)
 	}
 
 	// For explicit token authentication, attach credentials up front.
