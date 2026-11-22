@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/oota-sushikuitee/nigiri/internal/targets"
-	"github.com/oota-sushikuitee/nigiri/pkg/commits"
 	"github.com/spf13/cobra"
 )
 
@@ -113,24 +112,17 @@ type commitInfo struct {
 // Returns:
 //   - error: Any error encountered while reading the target directory or commit information
 func (c *listCommand) listTargetCommits(target string) error {
-	// Create Target instance
-	fsTarget := targets.Target{
-		Target:  target,
-		Commits: commits.Commits{},
-	}
-
-	targetDir, err := fsTarget.GetTargetRootDir(nigiriRoot)
-	if err != nil {
+	if err := targets.ValidateTargetName(target); err != nil {
 		return err
 	}
 
-	// Check if target directory exists
-	if _, statErr := os.Stat(targetDir); os.IsNotExist(statErr) {
+	targetDir := filepath.Join(nigiriRoot, target)
+
+	entries, err := os.ReadDir(targetDir)
+	if os.IsNotExist(err) {
 		return fmt.Errorf("target '%s' is not installed", target)
 	}
 
-	// Get commit directories
-	entries, err := os.ReadDir(targetDir)
 	if err != nil {
 		return fmt.Errorf("failed to read target directory: %w", err)
 	}
