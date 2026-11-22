@@ -199,7 +199,7 @@ func isAuthRequiredError(err error) bool {
 
 // GetDefaultBranchRemoteHead stores in g.HEAD the commit that defaultBranch
 // points to on the remote, without cloning. If the branch is not found, the
-// remote's HEAD is used instead. Listing is retried with a GitHub token when
+// branch the remote's HEAD points to is used instead. Listing is retried with a GitHub token when
 // the remote requires authentication.
 func (g *Git) GetDefaultBranchRemoteHead(defaultBranch string) error {
 	remote := git.NewRemote(nil, &config.RemoteConfig{
@@ -227,35 +227,28 @@ func (g *Git) GetDefaultBranchRemoteHead(defaultBranch string) error {
 		return fmt.Errorf("failed to list remote references: %w", err)
 	}
 
-	// Try finding the exact match first
+	byName := make(map[plumbing.ReferenceName]*plumbing.Reference, len(refs))
 	for _, ref := range refs {
-		if ref.Name().IsBranch() && ref.Name().Short() == defaultBranch {
-			g.HEAD = ref.Hash().String()
+		byName[ref.Name()] = ref
+	}
 
-			return nil
+	ref, ok := byName[plumbing.NewBranchReferenceName(defaultBranch)]
+	if !ok {
+		// go-git lists the remote HEAD as a symbolic reference, whose own hash
+		// is zero, so it has to be followed to the branch it points to.
+		ref, ok = byName[plumbing.HEAD]
+		if ok && ref.Type() == plumbing.SymbolicReference {
+			ref, ok = byName[ref.Target()]
 		}
 	}
 
-	// If not found, try with refs/heads/ prefix
-	branchRefName := plumbing.ReferenceName("refs/heads/" + defaultBranch)
-	for _, ref := range refs {
-		if ref.Name() == branchRefName {
-			g.HEAD = ref.Hash().String()
-
-			return nil
-		}
+	if !ok || ref.Hash().IsZero() {
+		return fmt.Errorf("branch '%s' not found in remote repository", defaultBranch)
 	}
 
-	// Also try HEAD resolution for default branch
-	for _, ref := range refs {
-		if ref.Name().String() == "HEAD" {
-			g.HEAD = ref.Hash().String()
+	g.HEAD = ref.Hash().String()
 
-			return nil
-		}
-	}
-
-	return fmt.Errorf("branch '%s' not found in remote repository", defaultBranch)
+	return nil
 }
 
 // Checkout checks out ref in the repository at repoDir. ref is tried as a

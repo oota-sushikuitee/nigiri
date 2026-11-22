@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 )
@@ -170,26 +172,98 @@ func TestClone(t *testing.T) {
 	}
 }
 
+func setRef(t *testing.T, r *git.Repository, ref *plumbing.Reference) {
+	t.Helper()
+
+	if err := r.Storer.SetReference(ref); err != nil {
+		t.Fatalf("failed to set reference %s: %v", ref.Name(), err)
+	}
+}
+
+// TestGetDefaultBranchRemoteHead runs against a local repository whose only
+// branch is master unless setup rearranges its references.
 func TestGetDefaultBranchRemoteHead(t *testing.T) {
-	repoDir, _, second := initTestRepo(t)
-	destDir := filepath.Join(t.TempDir(), "clone")
+	t.Parallel()
 
-	g := Git{Source: repoDir}
-	if err := g.Clone(destDir, Options{Depth: 1, AuthMethod: AuthNone}); err != nil {
-		t.Fatalf("failed to clone repository: %v", err)
+	tests := []struct {
+		name   string
+		branch string
+		// setup returns the commit expected in g.HEAD, or "" for an error.
+		setup func(t *testing.T, r *git.Repository, first, second string) string
+	}{
+		{
+			name:   "requested branch exists",
+			branch: "master",
+			setup:  func(_ *testing.T, _ *git.Repository, _, second string) string { return second },
+		},
+		{
+			name:   "missing branch falls back to the commit of the remote default branch",
+			branch: "main",
+			setup:  func(_ *testing.T, _ *git.Repository, _, second string) string { return second },
+		},
+		{
+			name:   "fallback follows HEAD to a default branch other than master",
+			branch: "main",
+			setup: func(t *testing.T, r *git.Repository, first, _ string) string {
+				t.Helper()
+
+				trunk := plumbing.NewBranchReferenceName("trunk")
+				setRef(t, r, plumbing.NewHashReference(trunk, plumbing.NewHash(first)))
+				setRef(t, r, plumbing.NewSymbolicReference(plumbing.HEAD, trunk))
+
+				return first
+			},
+		},
+		{
+			name:   "missing branch and unresolvable HEAD returns an error",
+			branch: "main",
+			setup: func(t *testing.T, r *git.Repository, _, second string) string {
+				t.Helper()
+				setRef(t, r, plumbing.NewHashReference(plumbing.NewBranchReferenceName("dev"), plumbing.NewHash(second)))
+
+				if err := r.Storer.RemoveReference(plumbing.Master); err != nil {
+					t.Fatalf("failed to remove master: %v", err)
+				}
+
+				return ""
+			},
+		},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	cloned := g.HEAD
+			repoDir, first, second := initTestRepo(t)
 
-	if err := g.GetDefaultBranchRemoteHead("master"); err != nil {
-		t.Fatalf("failed to get remote HEAD: %v", err)
-	}
+			r, err := git.PlainOpen(repoDir)
+			if err != nil {
+				t.Fatalf("failed to open repository: %v", err)
+			}
 
-	if g.HEAD != cloned {
-		t.Errorf("remote HEAD = %q, want the cloned HEAD %q", g.HEAD, cloned)
-	}
+			want := tt.setup(t, r, first, second)
 
-	if g.HEAD != second {
-		t.Errorf("remote HEAD = %q, want %q", g.HEAD, second)
+			g := Git{Source: repoDir}
+			err = g.GetDefaultBranchRemoteHead(tt.branch)
+
+			if want == "" {
+				if err == nil {
+					t.Fatalf("GetDefaultBranchRemoteHead(%q) = nil error with HEAD %q, want an error", tt.branch, g.HEAD)
+				}
+
+				if !strings.Contains(err.Error(), "not found in remote repository") {
+					t.Errorf("GetDefaultBranchRemoteHead(%q) error = %v, want a branch-not-found error", tt.branch, err)
+				}
+
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("GetDefaultBranchRemoteHead(%q) failed: %v", tt.branch, err)
+			}
+
+			if g.HEAD != want {
+				t.Errorf("GetDefaultBranchRemoteHead(%q) HEAD = %q, want %q", tt.branch, g.HEAD, want)
+			}
+		})
 	}
 }
