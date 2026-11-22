@@ -16,54 +16,51 @@ import (
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 )
 
-// Git represents a git repository with its source URL and HEAD commit hash
-//
-// Fields:
-//   - Source: The source repository URL
-//   - HEAD: The HEAD commit hash
+// Git is a remote git repository. HEAD holds the commit hash resolved by the
+// last successful Clone or GetDefaultBranchRemoteHead.
 type Git struct {
 	Source string
 	HEAD   string
 }
 
-// tokenAuthUsername is the username GitHub expects for HTTPS token authentication.
 const tokenAuthUsername = "x-access-token"
 
-// AuthMethod represents the authentication method.
+// AuthMethod selects how Clone authenticates to the remote.
 type AuthMethod string
 
 const (
-	// AuthToken uses a GitHub token for authentication.
+	// AuthToken authenticates over HTTPS with a GitHub token.
 	AuthToken AuthMethod = "token"
-	// AuthSSH uses SSH keys for authentication.
+	// AuthSSH is reserved for SSH key authentication; Clone does not
+	// implement it and clones anonymously.
 	AuthSSH AuthMethod = "ssh"
-	// AuthNone uses no authentication (for public repositories).
+	// AuthNone clones anonymously, retrying with a GitHub token if the
+	// remote requires authentication and a token is available.
 	AuthNone AuthMethod = "none"
 )
 
-// Options represents git operation options.
+// Options configures Clone.
 type Options struct {
-	// AuthMethod specifies the authentication method to use
+	// AuthMethod defaults to AuthNone when empty.
 	AuthMethod AuthMethod
-	// Token is the GitHub token to use for authentication
+	// Token is used with AuthToken. When empty, GITHUB_TOKEN and then
+	// `gh auth token` are tried.
 	Token string
-	// Depth specifies the clone depth (0 for full history)
+	// Depth limits the clone history; 0 or a negative value clones the full
+	// history.
 	Depth int
-	// Verbose enables verbose output
+	// Verbose writes clone progress to stdout.
 	Verbose bool
-	// UnshallowIfNeeded specifies whether to unshallow if needed
+	// UnshallowIfNeeded is currently ignored.
 	UnshallowIfNeeded bool
 }
 
-// getGitHubToken tries to get a GitHub token from various sources.
 func getGitHubToken() (string, error) {
-	// First check environment variable
 	token := os.Getenv("GITHUB_TOKEN")
 	if token != "" {
 		return token, nil
 	}
 
-	// Then try gh cli
 	cmd := exec.CommandContext(context.Background(), "gh", "auth", "token")
 
 	output, err := cmd.Output()
@@ -78,9 +75,8 @@ func getGitHubToken() (string, error) {
 	return "", errors.New("no GitHub token found, set GITHUB_TOKEN environment variable or login with 'gh auth login'")
 }
 
-// normalizeCloneDepth maps a requested clone depth to the value passed to go-git.
-// 0 means full history (go-git treats 0 as no depth limit); negative values are
-// coerced to a full clone as well.
+// normalizeCloneDepth coerces negative depths to 0, which go-git treats as no
+// depth limit.
 func normalizeCloneDepth(depth int) int {
 	if depth < 0 {
 		return 0
@@ -89,14 +85,8 @@ func normalizeCloneDepth(depth int) int {
 	return depth
 }
 
-// Clone clones the repository to the specified directory
-//
-// Parameters:
-//   - cloneDir: The directory to clone the repository into
-//   - opts: Additional options for cloning (Depth 0 means full history)
-//
-// Returns:
-//   - error: Any error encountered during the cloning process
+// Clone clones Source into cloneDir, creating the directory if needed, and
+// records the cloned HEAD commit in g.HEAD.
 func (g *Git) Clone(cloneDir string, opts Options) error {
 	// Default options
 	depth := normalizeCloneDepth(opts.Depth)
@@ -186,9 +176,8 @@ func (g *Git) Clone(cloneDir string, opts Options) error {
 	return nil
 }
 
-// isAuthRequiredError reports whether err indicates that the remote requires
-// authentication (or that the provided credentials were rejected). It is used
-// to decide whether an anonymous operation should be retried with a token.
+// isAuthRequiredError also matches on the message text because not every
+// transport wraps the go-git sentinel errors.
 func isAuthRequiredError(err error) bool {
 	if err == nil {
 		return false
@@ -206,18 +195,11 @@ func isAuthRequiredError(err error) bool {
 		strings.Contains(msg, "authentication")
 }
 
-// GetDefaultBranchRemoteHead retrieves the HEAD commit hash of the default branch from the remote repository
-//
-// Parameters:
-//   - defaultBranch: The name of the default branch
-//
-// Returns:
-//   - error: Any error encountered during the process
+// GetDefaultBranchRemoteHead stores in g.HEAD the commit that defaultBranch
+// points to on the remote, without cloning. If the branch is not found, the
+// remote's HEAD is used instead. Listing is retried with a GitHub token when
+// the remote requires authentication.
 func (g *Git) GetDefaultBranchRemoteHead(defaultBranch string) error {
-	// When dealing with potentially private repos, it's better to use go-git's
-	// authentication mechanisms rather than the RemoteConfig directly
-
-	// First try without authentication
 	remote := git.NewRemote(nil, &config.RemoteConfig{
 		URLs: []string{g.Source},
 	})
@@ -274,14 +256,9 @@ func (g *Git) GetDefaultBranchRemoteHead(defaultBranch string) error {
 	return fmt.Errorf("branch '%s' not found in remote repository", defaultBranch)
 }
 
-// Checkout checkouts the specified commit or branch in the repository
-//
-// Parameters:
-//   - repoDir: The directory containing the repository
-//   - ref: The reference (commit hash or branch name) to checkout
-//
-// Returns:
-//   - error: Any error encountered during the checkout process
+// Checkout checks out ref in the repository at repoDir. ref is tried as a
+// local branch name first, then resolved as a revision (full or short commit
+// hash, or tag).
 func (g *Git) Checkout(repoDir string, ref string) error {
 	r, err := git.PlainOpen(repoDir)
 	if err != nil {

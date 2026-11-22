@@ -23,7 +23,6 @@ func toMB(size int64) float64 {
 	return float64(size) / bytesPerMB
 }
 
-// cleanupCommand represents the structure for the cleanup command.
 type cleanupCommand struct {
 	cmd         *cobra.Command
 	maxAge      int
@@ -33,11 +32,6 @@ type cleanupCommand struct {
 	skipConfirm bool
 }
 
-// newCleanupCommand creates a new cleanup command instance which helps users
-// manage disk space by cleaning up old builds.
-//
-// Returns:
-//   - *cleanupCommand: A configured cleanup command instance
 func newCleanupCommand() *cleanupCommand {
 	c := &cleanupCommand{}
 	cmd := &cobra.Command{
@@ -80,15 +74,10 @@ Without arguments, shows the current disk usage of builds.`,
 	return c
 }
 
-// getCompletionTargets returns a list of available targets for command completion.
 func (c *cleanupCommand) getCompletionTargets(prefix string) []string {
 	return getInstalledTargets(prefix)
 }
 
-// showDiskUsage displays disk usage information for all targets
-//
-// Returns:
-//   - error: Any error encountered while gathering disk usage information
 func (c *cleanupCommand) showDiskUsage() error {
 	entries, err := os.ReadDir(nigiriRoot)
 	if err != nil {
@@ -139,15 +128,7 @@ func (c *cleanupCommand) showDiskUsage() error {
 	return nil
 }
 
-// executeCleanup handles the cleanup of old builds for a specific target
-//
-// Parameters:
-//   - target: The name of the target to clean up
-//
-// Returns:
-//   - error: Any error encountered during the cleanup process
 func (c *cleanupCommand) executeCleanup(target string) error {
-	// Create target directory if it doesn't exist
 	fsTarget := targets.Target{Target: target}
 
 	targetRootDir, err := fsTarget.GetTargetRootDir(nigiriRoot)
@@ -285,10 +266,6 @@ func (c *cleanupCommand) executeCleanup(target string) error {
 	return nil
 }
 
-// executeCleanupAll handles the cleanup of old builds for all targets
-//
-// Returns:
-//   - error: Any error encountered during the cleanup process
 func (c *cleanupCommand) executeCleanupAll() error {
 	entries, err := os.ReadDir(nigiriRoot)
 	if err != nil {

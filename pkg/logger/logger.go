@@ -1,4 +1,4 @@
-// Package logger provides unified logging functionality for the nigiri CLI application
+// Package logger writes leveled, prefixed log lines for the nigiri CLI.
 package logger
 
 import (
@@ -24,25 +24,23 @@ const (
 )
 
 var (
-	// Default output is stderr.
 	defaultOutput io.Writer = os.Stderr
-	// Default log level is Info.
-	defaultLevel = InfoLevel
-	// Whether to include log level prefix in output.
-	showPrefix = true
+	defaultLevel            = InfoLevel
+	showPrefix              = true
 )
 
-// SetOutput changes the output destination for the logger.
+// SetOutput redirects log output, which defaults to os.Stderr.
 func SetOutput(w io.Writer) {
 	defaultOutput = w
 }
 
-// SetLevel changes the minimum log level that will be output.
+// SetLevel sets the minimum level that is written; the default is InfoLevel.
 func SetLevel(level LogLevel) {
 	defaultLevel = level
 }
 
-// SetShowPrefix controls whether log messages include level prefixes.
+// SetShowPrefix controls whether messages carry a level prefix such as
+// "WARNING: "; it is on by default. Info messages never carry one.
 func SetShowPrefix(show bool) {
 	showPrefix = show
 }
@@ -127,7 +125,6 @@ func Fatalf(format string, v ...any) {
 	}
 }
 
-// logWithPrefix logs a message with an optional prefix.
 func logWithPrefix(prefix string, v ...any) {
 	if showPrefix {
 		fmt.Fprint(defaultOutput, prefix)
@@ -136,7 +133,6 @@ func logWithPrefix(prefix string, v ...any) {
 	fmt.Fprintln(defaultOutput, v...)
 }
 
-// logWithPrefixf logs a formatted message with an optional prefix.
 func logWithPrefixf(prefix string, format string, v ...any) {
 	if showPrefix {
 		fmt.Fprint(defaultOutput, prefix)

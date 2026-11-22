@@ -1,4 +1,4 @@
-// Package config provides functionality to manage the nigiri CLI configuration files
+// Package config loads and saves the nigiri configuration file.
 package config
 
 import (
@@ -10,14 +10,13 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// fileConfig mirrors the on-disk YAML layout of a nigiri configuration file.
 type fileConfig struct {
 	Targets  map[string]targetConfig `yaml:"targets"`
 	Defaults map[string]string       `yaml:"defaults"`
 }
 
-// targetConfig mirrors the on-disk YAML layout of a single target. Source is
-// the current key; Sources is kept as a fallback alias for older config files.
+// targetConfig keeps Sources as a fallback alias of Source for older config
+// files.
 type targetConfig struct {
 	BuildCommand     buildCommandConfig `yaml:"build-command"`
 	Source           string             `yaml:"source"`
@@ -35,12 +34,14 @@ type buildCommandConfig struct {
 	BinaryPath string `yaml:"binary-path,omitempty"`
 }
 
-// ConfigManager handles the reading and writing of configuration files.
+// ConfigManager reads and writes the configuration file into Config.
 type ConfigManager struct {
 	Config *config.Config
 }
 
-// NewConfigManager creates a new ConfigManager with default configuration.
+// NewConfigManager returns a ConfigManager with an empty Config whose
+// configuration directory is ~/.nigiri (or the current directory when the
+// home directory cannot be determined).
 func NewConfigManager() *ConfigManager {
 	cfg := config.NewConfig()
 
@@ -56,9 +57,10 @@ func NewConfigManager() *ConfigManager {
 	}
 }
 
-// LoadCfgFile loads the configuration file. When an explicit config file path
-// has been set (e.g. via the --config flag), that file is loaded directly;
-// otherwise the file is discovered in the configuration directory.
+// LoadCfgFile parses the configuration file into Config. A path set with
+// Config.SetCfgFile is loaded directly; otherwise .nigiri.yaml, then
+// .nigiri.yml, is looked up in the configuration directory. A file that
+// defines no targets is an error.
 func (cm *ConfigManager) LoadCfgFile() error {
 	path, err := cm.configFilePath()
 	if err != nil {
@@ -110,7 +112,8 @@ func (cm *ConfigManager) LoadCfgFile() error {
 	return nil
 }
 
-// SaveCfgFile saves the configuration to the configuration file.
+// SaveCfgFile writes Config to .nigiri.yml in the configuration directory,
+// ignoring any path set with Config.SetCfgFile.
 func (cm *ConfigManager) SaveCfgFile() error {
 	cfgDir := cm.Config.GetCfgDir()
 
@@ -152,14 +155,11 @@ func (cm *ConfigManager) SaveCfgFile() error {
 	return nil
 }
 
-// GetConfig returns the configuration.
+// GetConfig returns cm.Config.
 func (cm *ConfigManager) GetConfig() *config.Config {
 	return cm.Config
 }
 
-// configFilePath resolves the configuration file to load: the explicit
-// --config path when set, otherwise the first of .nigiri.yaml / .nigiri.yml
-// found in the configuration directory.
 func (cm *ConfigManager) configFilePath() (string, error) {
 	if cfgFile := cm.Config.GetCfgFile(); cfgFile != "" {
 		return cfgFile, nil

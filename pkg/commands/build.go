@@ -23,30 +23,17 @@ import (
 
 const defaultBuildTimeoutMinutes = 30
 
-// buildCommand represents the structure for the build command.
 type buildCommand struct {
-	// cmd is the cobra command instance
-	cmd *cobra.Command
-	// commit specifies a particular commit to build
-	commit string
-	// depth is the git clone depth
-	depth int
-	// verbose enables verbose output
-	verbose bool
-	// forceBuild forces rebuilding even if already built
+	cmd        *cobra.Command
+	commit     string
+	depth      int
+	verbose    bool
 	forceBuild bool
-	// useToken enables GitHub token authentication
-	useToken bool
-	// timeout is the build timeout in minutes (0 = no timeout)
+	useToken   bool
+	// timeout is in minutes; 0 disables it.
 	timeout int
 }
 
-// newBuildCommand creates a new build command instance which is responsible for
-// building targets according to their configurations in the nigiri config file.
-// It handles the process of cloning repositories and executing build commands.
-//
-// Returns:
-//   - *buildCommand: A configured build command instance
 func newBuildCommand() *buildCommand {
 	c := &buildCommand{}
 	cmd := &cobra.Command{
@@ -92,14 +79,13 @@ If the target has already been built at the specified commit, the build will be 
 	return c
 }
 
-// getCompletionTargets returns a list of available targets for command completion.
 func (c *buildCommand) getCompletionTargets(prefix string) []string {
 	return getConfiguredTargets(prefix)
 }
 
-// resolveCloneDepth determines the clone depth to use. A shallow clone only
-// contains the default branch HEAD, so it cannot resolve an arbitrary commit;
-// when a commit is requested, fall back to a full clone (depth 0).
+// resolveCloneDepth falls back to a full clone (depth 0) when a commit is
+// requested: a shallow clone only contains the default branch HEAD, so it
+// cannot resolve an arbitrary commit.
 func resolveCloneDepth(depth int, commit string) int {
 	if commit != "" {
 		return 0
@@ -108,15 +94,6 @@ func resolveCloneDepth(depth int, commit string) int {
 	return depth
 }
 
-// executeBuild handles the build process for the specified target.
-// It loads configuration, clones the repository at the default branch's HEAD,
-// and executes the appropriate OS-specific build command.
-//
-// Parameters:
-//   - target: The name of the target to build as specified in the config file
-//
-// Returns:
-//   - error: Any error encountered during the build process
 func (c *buildCommand) executeBuild(target string) error {
 	// Load configuration
 	cm := newConfigManager()
@@ -452,18 +429,8 @@ func (c *buildCommand) executeBuild(target string) error {
 	return nil
 }
 
-// selectBuildCommand returns the build command to run for goos, falling back to
-// the configuration's `defaults` section when the target defines no command of
-// its own.
-//
-// Parameters:
-//   - target: The target's own build command configuration
-//   - defaults: The configuration-wide default build commands
-//   - goos: The operating system to select the command for
-//
-// Returns:
-//   - string: The command to run
-//   - error: An error when the OS is unsupported or no command is configured
+// selectBuildCommand falls back to the configuration's `defaults` section when
+// the target defines no command of its own for goos.
 func selectBuildCommand(target, defaults cfgmodel.BuildCommand, goos string) (string, error) {
 	forOS := func(bc cfgmodel.BuildCommand) (string, bool) {
 		switch goos {
@@ -499,21 +466,10 @@ func selectBuildCommand(target, defaults cfgmodel.BuildCommand, goos string) (st
 // inherited the output pipes keep the build hanging indefinitely.
 const buildWaitDelay = 5 * time.Second
 
-// runBuildCommand runs the build command in a shell under ctx. The shell is
-// placed in its own process group so cancellation reaches the whole build
-// process tree instead of only the shell, and waitDelay bounds the wait for
-// output pipes that orphaned descendants may still hold open.
-//
-// Parameters:
-//   - ctx: The context bounding the build (carries the --timeout deadline)
-//   - command: The shell command to run
-//   - stdout: Writer receiving the command's standard output
-//   - stderr: Writer receiving the command's standard error
-//   - env: The environment for the command (nil inherits the current one)
-//   - waitDelay: The grace period before abandoning blocked output pipes
-//
-// Returns:
-//   - error: Any error encountered while running the build command
+// runBuildCommand places the shell in its own process group so cancellation
+// reaches the whole build process tree instead of only the shell, and
+// waitDelay bounds the wait for output pipes that orphaned descendants may
+// still hold open. A nil env inherits the current environment.
 func runBuildCommand(
 	ctx context.Context, command string, stdout, stderr io.Writer, env []string, waitDelay time.Duration,
 ) error {
@@ -537,9 +493,9 @@ func runBuildCommand(
 	return err //nolint:wrapcheck // the caller reports it as "build failed"
 }
 
-// copyFile copies a file from src to dst. A source above the size limit is
-// rejected rather than copied truncated, since the result would be reported as
-// a successful build and then executed.
+// copyFile rejects a source above the size limit rather than copying it
+// truncated, since the result would be reported as a successful build and then
+// executed.
 func copyFile(src, dst string) error {
 	// Get file info up front: the size decides whether the copy may proceed
 	info, err := os.Stat(src)
@@ -586,10 +542,8 @@ func copyFile(src, dst string) error {
 	return nil
 }
 
-// maxFileSizeForArchive is the maximum file size allowed in archives (1GB).
 const maxFileSizeForArchive = 1 << 30
 
-// wrapClose annotates a non-nil Close error with msg, and returns nil otherwise.
 func wrapClose(msg string, err error) error {
 	if err == nil {
 		return nil
@@ -598,7 +552,6 @@ func wrapClose(msg string, err error) error {
 	return fmt.Errorf("%s: %w", msg, err)
 }
 
-// compressDirectory compresses a directory into a tar.gz file.
 func compressDirectory(srcDir, tarGzPath string) (err error) {
 	// Create tar.gz file
 	tarGzFile, createErr := os.Create(tarGzPath)
@@ -683,17 +636,9 @@ func compressDirectory(srcDir, tarGzPath string) (err error) {
 	return nil
 }
 
-// addFileToTar adds a single file to the tar archive with proper resource cleanup.
-// Files above the archive size limit are rejected rather than truncated, because
-// a body shorter than the declared header size desynchronizes the archive.
-//
-// Parameters:
-//   - tarWriter: The archive to write the file body to
-//   - path: The file to add
-//   - size: The size declared in the already-written tar header
-//
-// Returns:
-//   - error: Any error encountered while adding the file
+// addFileToTar is a separate function so the deferred Close runs per file
+// instead of accumulating across the Walk. A body that differs from size, the
+// length already declared in the tar header, would desynchronize the archive.
 func addFileToTar(tarWriter *tar.Writer, path string, size int64) error {
 	file, err := os.Open(path)
 	if err != nil {

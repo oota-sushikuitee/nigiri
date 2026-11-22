@@ -12,25 +12,15 @@ import (
 	"github.com/oota-sushikuitee/nigiri/pkg/commits"
 )
 
-// Target represents a build target with its associated commits
-//
-// Fields:
-//   - Target: The name of the target
+// Target is a named build target whose builds live in a directory of the same
+// name under the nigiri root.
 type Target struct {
 	Target string
 }
 
-// ValidateTargetName checks that a user-supplied target name is safe to use
-// as a directory name directly under the nigiri root. A target name must be a
-// single local path element: names containing path separators, "..", ".", or
-// an empty string are rejected so that a crafted name cannot resolve to a
-// path outside the nigiri root (e.g. "nigiri remove ../<dir>").
-//
-// Parameters:
-//   - name: The target name to validate
-//
-// Returns:
-//   - error: An error describing why the name is invalid, or nil if it is valid
+// ValidateTargetName rejects names that are not a single local path element
+// (empty, ".", "..", or containing a path separator), so that a crafted name
+// cannot resolve outside the nigiri root (e.g. "nigiri remove ../<dir>").
 func ValidateTargetName(name string) error {
 	if name == "" {
 		return errors.New("target name must not be empty")
@@ -51,14 +41,8 @@ func ValidateTargetName(name string) error {
 	return nil
 }
 
-// GetTargetRootDir returns the root directory for the specified target
-//
-// Parameters:
-//   - nigiriRoot: The root directory for nigiri
-//
-// Returns:
-//   - string: The target root directory path
-//   - error: Any error encountered during the process
+// GetTargetRootDir returns the target's directory under nigiriRoot, or an
+// error if the name is invalid or the directory does not exist.
 func (t *Target) GetTargetRootDir(nigiriRoot string) (string, error) {
 	if err := ValidateTargetName(t.Target); err != nil {
 		return "", err
@@ -72,14 +56,8 @@ func (t *Target) GetTargetRootDir(nigiriRoot string) (string, error) {
 	return fp, nil
 }
 
-// CreateTargetRootDirIfNotExist creates the root directory for the specified target if it does not already exist
-//
-// Parameters:
-//   - nigiriRoot: The root directory for nigiri
-//
-// Returns:
-//   - string: The created or existing target root directory path
-//   - error: Any error encountered during the process
+// CreateTargetRootDirIfNotExist returns the target's directory under
+// nigiriRoot, creating it first when it is missing.
 func (t *Target) CreateTargetRootDirIfNotExist(nigiriRoot string) (string, error) {
 	if err := ValidateTargetName(t.Target); err != nil {
 		return "", err
@@ -95,29 +73,17 @@ func (t *Target) CreateTargetRootDirIfNotExist(nigiriRoot string) (string, error
 	return fp, nil
 }
 
-// IsExistTargetCommitDir checks if the commit directory for the specified target exists
-//
-// Parameters:
-//   - targetRoot: The root directory for the target
-//   - commit: The commit to check
-//
-// Returns:
-//   - bool: True if the commit directory exists, false otherwise
+// IsExistTargetCommitDir reports whether targetRoot already holds a build
+// directory for commit.
 func IsExistTargetCommitDir(targetRoot string, commit commits.Commit) bool {
 	fp := filepath.Join(targetRoot, commit.ShortHash)
 
 	return dirutils.Exists(fp)
 }
 
-// CreateTargetCommitDir creates the commit directory for the specified target and commit
-//
-// Parameters:
-//   - targetRoot: The root directory for the target
-//   - commit: The commit to create the directory for
-//
-// Returns:
-//   - string: The created commit directory path
-//   - error: Any error encountered during the process
+// CreateTargetCommitDir creates the build directory for commit under
+// targetRoot, named after its short hash, and returns its path. It fails if
+// the commit is invalid or the directory already exists.
 func CreateTargetCommitDir(targetRoot string, commit commits.Commit) (string, error) {
 	if err := commit.Validate(); err != nil {
 		return "", err

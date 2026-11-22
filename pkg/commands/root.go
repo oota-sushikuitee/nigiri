@@ -10,16 +10,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// nigiriRoot is the default path for nigiri's data directory.
 var nigiriRoot = defaultNigiriRoot()
 
-// cfgFileFlag holds the value of the global --config flag. When non-empty it
-// overrides the default configuration file location.
 var cfgFileFlag string
 
-// defaultNigiriRoot resolves the nigiri data directory using the same home
-// directory resolution as the config loader, so both agree across platforms
-// (os.UserHomeDir works on Windows, where HOME is usually unset).
+// defaultNigiriRoot uses the same home directory resolution as the config
+// loader, so both agree across platforms (os.UserHomeDir works on Windows,
+// where HOME is usually unset).
 func defaultNigiriRoot() string {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -29,8 +26,6 @@ func defaultNigiriRoot() string {
 	return filepath.Join(homeDir, ".nigiri")
 }
 
-// newConfigManager builds a ConfigManager, applying the global --config flag
-// as an explicit configuration file path when it is set.
 func newConfigManager() *config.ConfigManager {
 	cm := config.NewConfigManager()
 	if cfgFileFlag != "" {
@@ -40,11 +35,9 @@ func newConfigManager() *config.ConfigManager {
 	return cm
 }
 
-// ExitCodeError reports the exit status of a target process that nigiri ran on
-// the user's behalf, so the CLI can exit with the same status instead of
-// collapsing every failure into 1.
+// ExitCodeError reports the non-zero exit status of a target process that
+// nigiri ran, so the CLI can exit with the same status instead of 1.
 type ExitCodeError struct {
-	// Code is the status the target exited with
 	Code int
 }
 
@@ -58,16 +51,12 @@ func (e *ExitCodeError) ExitCode() int {
 	return e.Code
 }
 
-// rootCommand represents the structure for the root command.
 type rootCommand struct {
 	cmd *cobra.Command
 }
 
-// NewRootCommand creates a new root command instance which serves as the base command
-// for the nigiri CLI application. It initializes the command structure and adds all subcommands.
-//
-// Returns:
-//   - *rootCommand: A configured root command instance ready to be executed
+// NewRootCommand returns the nigiri command tree with every subcommand
+// registered; call Execute on it to run the CLI.
 func NewRootCommand() *rootCommand {
 	c := &rootCommand{}
 	rootCmd := &cobra.Command{
@@ -76,7 +65,6 @@ func NewRootCommand() *rootCommand {
 		Long: `nigiri is a tool for managing upstream VCS repositories and build artifacts.
 It allows you to easily build, run, and manage different versions of upstream projects.
 `,
-		// Enable the --version flag on the root command
 		Version: Version,
 		// main reports errors itself; a failing command is not a usage error,
 		// so the usage text must not be dumped on top of it.
@@ -87,16 +75,14 @@ It allows you to easily build, run, and manage different versions of upstream pr
 		},
 	}
 
-	// Add global flags
 	fs := rootCmd.PersistentFlags()
 	fs.StringVarP(&cfgFileFlag, "config", "c", "", "config file (default is $HOME/.nigiri/.nigiri.yml)")
 
-	// Add subcommands
 	rootCmd.AddCommand(newInitCommand().cmd)
 	rootCmd.AddCommand(newBuildCommand().cmd)
 	rootCmd.AddCommand(newRunCommand().cmd)
 	rootCmd.AddCommand(newRemoveCommand().cmd)
-	rootCmd.AddCommand(newCleanupCommand().cmd) // Add cleanup command
+	rootCmd.AddCommand(newCleanupCommand().cmd)
 	rootCmd.AddCommand(newVersionCommand().cmd)
 	rootCmd.AddCommand(newListCommand().cmd)
 
@@ -105,11 +91,8 @@ It allows you to easily build, run, and manage different versions of upstream pr
 	return c
 }
 
-// Execute runs the root command, processing any command line arguments
-// and executing the appropriate subcommand.
-//
-// Returns:
-//   - error: Any error encountered during command execution
+// Execute parses os.Args and runs the selected subcommand. A target that exits
+// non-zero under `nigiri run` is reported as an *ExitCodeError.
 func (c *rootCommand) Execute() error {
 	return c.cmd.Execute() //nolint:wrapcheck // subcommand errors already carry their context
 }

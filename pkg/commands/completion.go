@@ -7,14 +7,6 @@ import (
 	"github.com/oota-sushikuitee/nigiri/internal/targets"
 )
 
-// getConfiguredTargets returns a list of target names from the configuration file
-// that match the given prefix. This is used for shell completion.
-//
-// Parameters:
-//   - prefix: The prefix to filter targets by
-//
-// Returns:
-//   - []string: A list of matching target names
 func getConfiguredTargets(prefix string) []string {
 	cm := newConfigManager()
 	if err := cm.LoadCfgFile(); err != nil {
@@ -32,14 +24,6 @@ func getConfiguredTargets(prefix string) []string {
 	return targetList
 }
 
-// getInstalledTargets returns a list of installed target directories
-// that match the given prefix. This is used for shell completion.
-//
-// Parameters:
-//   - prefix: The prefix to filter targets by
-//
-// Returns:
-//   - []string: A list of matching target directory names
 func getInstalledTargets(prefix string) []string {
 	entries, err := os.ReadDir(nigiriRoot)
 	if err != nil {
@@ -59,15 +43,6 @@ func getInstalledTargets(prefix string) []string {
 	return targetList
 }
 
-// getTargetCommits returns a list of commit hashes for the specified target
-// that match the given prefix. This is used for shell completion.
-//
-// Parameters:
-//   - target: The target name to get commits for
-//   - prefix: The prefix to filter commits by
-//
-// Returns:
-//   - []string: A list of matching commit hashes
 func getTargetCommits(target, prefix string) []string {
 	fsTarget := targets.Target{Target: target}
 

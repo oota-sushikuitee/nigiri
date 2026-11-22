@@ -12,16 +12,10 @@ import (
 //go:embed sample-config.yml
 var sampleConfig []byte
 
-// initCommand represents the structure for the init command.
 type initCommand struct {
 	cmd *cobra.Command
 }
 
-// newInitCommand creates a new init command instance which helps users
-// create their initial nigiri configuration file.
-//
-// Returns:
-//   - *initCommand: A configured init command instance
 func newInitCommand() *initCommand {
 	c := &initCommand{}
 	cmd := &cobra.Command{
@@ -37,10 +31,6 @@ func newInitCommand() *initCommand {
 	return c
 }
 
-// executeInit creates a new configuration file with default settings.
-//
-// Returns:
-//   - error: Any error encountered during the initialization process
 func (c *initCommand) executeInit() error {
 	// Create nigiri root directory if it doesn't exist
 	if err := os.MkdirAll(nigiriRoot, 0o755); err != nil {

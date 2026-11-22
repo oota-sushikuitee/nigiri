@@ -1,14 +1,9 @@
-// Package config defines the configuration models for the nigiri CLI
+// Package config defines the configuration models for the nigiri CLI.
 package config
 
 import "strings"
 
-// Config represents the configuration for the nigiri CLI
-//
-// Fields:
-//   - cfgDir: The directory where the configuration file is located
-//   - Targets: A map of target names to their configurations
-//   - Defaults: The default build command configuration
+// Config is the parsed nigiri configuration file.
 type Config struct {
 	Targets  map[string]Target
 	Defaults BuildCommand
@@ -21,43 +16,32 @@ func NewConfig() *Config {
 	return &Config{}
 }
 
-// Target represents the configuration for a specific target
-//
-// Fields:
-//   - BuildCommand: The build command configuration
-//   - Env: Environment variables to set when running the target
-//   - Sources: The source repository URL
-//   - DefaultBranch: The default branch of the repository
-//   - WorkingDirectory: The directory within the repository to run the build command
-//   - BinaryOnly: Whether to keep only the binary and remove source code after build
+// Target is the configuration of one build target.
 type Target struct {
-	BuildCommand     BuildCommand
-	DefaultBranch    string
-	Sources          string
+	BuildCommand BuildCommand
+	// DefaultBranch is built when no commit is given.
+	DefaultBranch string
+	// Sources is the URL of the repository to clone.
+	Sources string
+	// WorkingDirectory is the repository subdirectory the build command runs in.
 	WorkingDirectory string
-	Env              []string
-	BinaryOnly       bool
+	// Env holds KEY=VALUE pairs added to the environment of the build and of the built binary.
+	Env []string
+	// BinaryOnly discards the source tree after a successful build.
+	BinaryOnly bool
 }
 
-// BuildCommand represents the build command configuration for a target
-//
-// Fields:
-//   - Linux: The build command for Linux
-//   - Windows: The build command for Windows
-//   - Darwin: The build command for macOS
-//   - BinaryPath: The path to the built binary
+// BuildCommand holds the per-OS build commands of a target and the path of the
+// binary they produce.
 type BuildCommand struct {
-	Linux           string
-	Windows         string
-	Darwin          string
+	Linux   string
+	Windows string
+	Darwin  string
+	// BinaryPathValue is relative to the working directory; read it through BinaryPath.
 	BinaryPathValue string
 }
 
-// BinaryPath returns the configured binary path if set, otherwise false
-//
-// Returns:
-//   - string: The binary path
-//   - bool: True if the binary path is set, false otherwise
+// BinaryPath returns the configured binary path and whether one is set.
 func (bc BuildCommand) BinaryPath() (string, bool) {
 	if bc.BinaryPathValue == "" {
 		return "", false
@@ -66,16 +50,8 @@ func (bc BuildCommand) BinaryPath() (string, bool) {
 	return bc.BinaryPathValue, true
 }
 
-// GetTarget looks up a target by name, falling back to a case-insensitive
-// match so the CLI argument and the configured target name do not have to
-// agree on case exactly.
-//
-// Parameters:
-//   - name: The target name as supplied by the user
-//
-// Returns:
-//   - Target: The matching target configuration
-//   - bool: True if a target with that name exists
+// GetTarget looks up a target by name, falling back to the lowercased name so
+// the CLI argument and the configured target name do not have to agree on case.
 func (c *Config) GetTarget(name string) (Target, bool) {
 	if target, ok := c.Targets[name]; ok {
 		return target, true
@@ -90,35 +66,23 @@ func (c *Config) GetTarget(name string) (Target, bool) {
 	return Target{}, false
 }
 
-// GetCfgDir returns the configuration directory
-//
-// Returns:
-//   - string: The configuration directory
+// GetCfgDir returns the directory the configuration file is loaded from.
 func (c *Config) GetCfgDir() string {
 	return c.cfgDir
 }
 
-// SetCfgDir sets the configuration directory
-//
-// Parameters:
-//   - cfgDir: The directory to set as the configuration directory
+// SetCfgDir sets the directory the configuration file is loaded from.
 func (c *Config) SetCfgDir(cfgDir string) {
 	c.cfgDir = cfgDir
 }
 
-// GetCfgFile returns the explicit configuration file path, if any
-//
-// Returns:
-//   - string: The configuration file path (empty when unset)
+// GetCfgFile returns the explicit configuration file path, or "" when unset.
 func (c *Config) GetCfgFile() string {
 	return c.cfgFile
 }
 
-// SetCfgFile sets an explicit configuration file path. When set, it takes
-// precedence over the configuration directory during loading.
-//
-// Parameters:
-//   - cfgFile: The path to the configuration file to load
+// SetCfgFile sets an explicit configuration file path, which takes precedence
+// over the configuration directory during loading.
 func (c *Config) SetCfgFile(cfgFile string) {
 	c.cfgFile = cfgFile
 }
