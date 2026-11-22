@@ -1,4 +1,4 @@
-// Package config loads and saves the nigiri configuration file.
+// Package config loads the nigiri configuration file.
 package config
 
 import (
@@ -20,10 +20,10 @@ type fileConfig struct {
 type targetConfig struct {
 	BuildCommand     buildCommandConfig `yaml:"build-command"`
 	Source           string             `yaml:"source"`
-	Sources          string             `yaml:"sources,omitempty"`
+	Sources          string             `yaml:"sources"`
 	DefaultBranch    string             `yaml:"default-branch"`
 	WorkingDirectory string             `yaml:"working-directory"`
-	Env              []string           `yaml:"env,omitempty"`
+	Env              []string           `yaml:"env"`
 	BinaryOnly       bool               `yaml:"binary-only"`
 }
 
@@ -31,10 +31,10 @@ type buildCommandConfig struct {
 	Linux      string `yaml:"linux"`
 	Windows    string `yaml:"windows"`
 	Darwin     string `yaml:"darwin"`
-	BinaryPath string `yaml:"binary-path,omitempty"`
+	BinaryPath string `yaml:"binary-path"`
 }
 
-// ConfigManager reads and writes the configuration file into Config.
+// ConfigManager reads the configuration file into Config.
 type ConfigManager struct {
 	Config *config.Config
 }
@@ -110,54 +110,6 @@ func (cm *ConfigManager) LoadCfgFile() error {
 	}
 
 	return nil
-}
-
-// SaveCfgFile writes Config to .nigiri.yml in the configuration directory,
-// ignoring any path set with Config.SetCfgFile.
-func (cm *ConfigManager) SaveCfgFile() error {
-	cfgDir := cm.Config.GetCfgDir()
-
-	file := fileConfig{
-		Targets: make(map[string]targetConfig, len(cm.Config.Targets)),
-		Defaults: map[string]string{
-			"linux":   cm.Config.Defaults.Linux,
-			"windows": cm.Config.Defaults.Windows,
-			"darwin":  cm.Config.Defaults.Darwin,
-		},
-	}
-
-	for name, target := range cm.Config.Targets {
-		file.Targets[name] = targetConfig{
-			Source:           target.Sources,
-			DefaultBranch:    target.DefaultBranch,
-			BinaryOnly:       target.BinaryOnly,
-			WorkingDirectory: target.WorkingDirectory,
-			Env:              target.Env,
-			BuildCommand: buildCommandConfig{
-				Linux:      target.BuildCommand.Linux,
-				Windows:    target.BuildCommand.Windows,
-				Darwin:     target.BuildCommand.Darwin,
-				BinaryPath: target.BuildCommand.BinaryPathValue,
-			},
-		}
-	}
-
-	data, err := yaml.Marshal(file)
-	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
-	}
-
-	configFile := filepath.Join(cfgDir, ".nigiri.yml")
-	if err := os.WriteFile(configFile, data, 0o644); err != nil {
-		return fmt.Errorf("failed to write config file: %w", err)
-	}
-
-	return nil
-}
-
-// GetConfig returns cm.Config.
-func (cm *ConfigManager) GetConfig() *config.Config {
-	return cm.Config
 }
 
 func (cm *ConfigManager) configFilePath() (string, error) {

@@ -9,11 +9,6 @@ type Commit struct {
 	ShortHash string
 }
 
-// Commits is a collection of git commits.
-type Commits struct {
-	Commits []Commit
-}
-
 const (
 	// ShortHashLength is the number of leading hash characters used as the
 	// on-disk directory name of a build.
